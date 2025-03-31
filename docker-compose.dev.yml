@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  frontend-dev:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./ui:/app
+      - ui-node-modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - WDS_SOCKET_PORT=0
+      - BACKEND_URL=http://backend-dev:8080
+    networks:
+      - conveyor-network
+    depends_on:
+      - backend-dev
+    restart: unless-stopped
+
+  backend-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+      - "2345:2345" # Delve debugging port
+    volumes:
+      - .:/app
+      - /app/tmp
+      - conveyor_data:/app/data
+      - ./plugins:/app/plugins
+    environment:
+      - CONVEYOR_DATA_DIR=/app/data
+      - CONVEYOR_PLUGINS_DIR=/app/plugins
+      - CONVEYOR_LOG_LEVEL=debug
+      - REDIS_HOST=redis
+      - GO_ENV=development
+      - SKIP_AUTH=true
+      - ENABLE_CORS=true
+      - PORT=8080
+    command: air -c .air.toml
+    networks:
+      - conveyor-network
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - conveyor-network
+    restart: unless-stopped
+
+volumes:
+  conveyor_data:
+  redis_data:
+  ui-node-modules:
+
+
+networks:
+  conveyor-network:
+    driver: bridge

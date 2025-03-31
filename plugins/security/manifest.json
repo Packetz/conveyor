@@ -1,0 +1,198 @@
+{
+  "name": "security-scanner",
+  "version": "2.0.0",
+  "description": "Comprehensive security scanner for code, dependencies, and configurations",
+  "author": "Conveyor Team",
+  "homepage": "https://conveyor.example.com/plugins/security",
+  "license": "MIT",
+  "type": "security",
+  "entrypoint": "security.go",
+  "icon": "shield-check",
+  "stepTypes": [
+    "security-scan",
+    "vulnerability-scan",
+    "secret-scan",
+    "sbom-generate"
+  ],
+  "categories": [
+    "security",
+    "quality",
+    "compliance"
+  ],
+  "compatibility": {
+    "conveyorVersion": ">=1.0.0",
+    "platforms": [
+      "linux",
+      "darwin",
+      "windows"
+    ]
+  },
+  "dependencies": {
+    "optional": [
+      "trivy",
+      "govulncheck",
+      "cyclonedx"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "severityThreshold": {
+        "type": "string",
+        "enum": [
+          "CRITICAL",
+          "HIGH",
+          "MEDIUM",
+          "LOW",
+          "INFO"
+        ],
+        "default": "HIGH",
+        "description": "Minimum severity level that will cause a scan to fail"
+      },
+      "ignorePatterns": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "node_modules/",
+          "vendor/",
+          ".git/"
+        ],
+        "description": "Patterns of files or directories to ignore during scanning"
+      },
+      "scanTypes": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "secret",
+            "vulnerability",
+            "license",
+            "code"
+          ]
+        },
+        "default": [
+          "secret",
+          "vulnerability",
+          "license",
+          "code"
+        ],
+        "description": "Types of security scans to perform"
+      },
+      "customRules": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "CRITICAL",
+                "HIGH",
+                "MEDIUM",
+                "LOW",
+                "INFO"
+              ]
+            },
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "description",
+            "severity",
+            "pattern"
+          ]
+        },
+        "description": "Custom security rules to check in addition to the built-in ones"
+      },
+      "failOnViolation": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to fail the pipeline if security violations are found"
+      },
+      "generateSBOM": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to generate a Software Bill of Materials (SBOM) for dependencies"
+      },
+      "sbomFormat": {
+        "type": "string",
+        "enum": [
+          "cyclonedx",
+          "spdx"
+        ],
+        "default": "cyclonedx",
+        "description": "Format of the generated SBOM"
+      },
+      "outputDir": {
+        "type": "string",
+        "default": "security-reports",
+        "description": "Directory where security reports will be saved"
+      }
+    }
+  },
+  "usage": {
+    "example": {
+      "steps": [
+        {
+          "name": "security-scan",
+          "plugin": "security-scanner",
+          "inputs": {
+            "targetDir": ".",
+            "scanTypes": [
+              "secret",
+              "vulnerability",
+              "code"
+            ],
+            "severityThreshold": "HIGH",
+            "failOnViolation": true
+          }
+        }
+      ]
+    },
+    "documentation": "# Security Scanner Plugin\n\nThis plugin provides comprehensive security scanning for your codebase and dependencies.\n\n## Features\n\n- **Code Security Scanning**: Detects common security vulnerabilities in code\n- **Secret Detection**: Finds accidentally committed secrets and credentials\n- **Dependency Scanning**: Checks dependencies for known vulnerabilities\n- **License Compliance**: Identifies potential license conflicts\n- **SBOM Generation**: Creates Software Bill of Materials for your dependencies\n\n## Configuration\n\nSee the configSchema for available options. Customize the scanner by providing your own rules and thresholds."
+  },
+  "uiExtensions": {
+    "dashboardWidgets": [
+      {
+        "name": "security-overview",
+        "title": "Security Overview",
+        "description": "Shows security scan results across pipelines"
+      }
+    ],
+    "reportViews": [
+      {
+        "name": "security-report",
+        "title": "Security Report",
+        "description": "Detailed view of security scan findings"
+      }
+    ]
+  },
+  "integrations": [
+    {
+      "name": "jira",
+      "description": "Can create Jira issues for security findings"
+    },
+    {
+      "name": "slack",
+      "description": "Can send security alerts to Slack channels"
+    },
+    {
+      "name": "github",
+      "description": "Can create GitHub issues for security findings"
+    }
+  ]
+}

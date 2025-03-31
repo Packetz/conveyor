@@ -1,0 +1,19 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json package-lock.json ./
+RUN npm install
+
+# Ensure we have write permissions for node_modules (common issue in Windows/WSL)
+RUN mkdir -p /app/node_modules && chmod -R 777 /app/node_modules
+
+# Copy the rest of the code
+COPY . .
+
+# Expose the Vite dev server port
+EXPOSE 3000
+
+# Start in development mode
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"] 

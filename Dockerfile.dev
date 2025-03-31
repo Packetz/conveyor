@@ -1,0 +1,28 @@
+FROM golang:1.21-alpine
+
+WORKDIR /app
+
+# Install build dependencies and development tools
+RUN apk add --no-cache git curl bash
+
+# Install a specific version of air that works with Go 1.21
+RUN go install github.com/cosmtrek/air@v1.44.0 && \
+  go install github.com/go-delve/delve/cmd/dlv@latest
+
+# Create default Go module if it doesn't exist
+COPY go.mod go.sum ./
+
+# Initialize module if needed
+RUN grep -q "module" go.mod || echo "module github.com/chip/conveyor\n\ngo 1.21" > go.mod
+
+# Download dependencies if any are specified (will be skipped if go.mod is empty)
+RUN go mod download || true
+
+# Copy config files for air
+COPY .air.toml ./
+
+# Expose API port and delve debugging port
+EXPOSE 8080 2345
+
+# Start the development server with hot-reloading
+CMD ["air", "-c", ".air.toml"] 

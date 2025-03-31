@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - conveyor-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - conveyor_data:/app/data
+      - ./plugins:/app/plugins
+    environment:
+      - CONVEYOR_DATA_DIR=/app/data
+      - CONVEYOR_PLUGINS_DIR=/app/plugins
+      - CONVEYOR_LOG_LEVEL=info
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    networks:
+      - conveyor-network
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - conveyor-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  conveyor_data:
+  redis_data:
+
+
+networks:
+  conveyor-network:
+    driver: bridge
