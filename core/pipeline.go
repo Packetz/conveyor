@@ -436,4 +436,99 @@ func (pe *PipelineEngine) RetryJob(pipelineID, jobID string) error {
 	}()
 
 	return nil
+}
+
+// AddJob adds a job to the engine
+func (pe *PipelineEngine) AddJob(job *Job) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
+	pe.jobs[job.ID] = job
+	
+	// Emit an event for this job addition
+	pe.emitEvent(Event{
+		Type:      "job.added",
+		Timestamp: time.Now(),
+		PipelineID: job.PipelineID,
+		JobID:     job.ID,
+		Data: map[string]interface{}{
+			"status": job.Status,
+		},
+	})
+	
+	// If the job is running, emit a job.started event
+	if job.Status == "running" {
+		pe.emitEvent(Event{
+			Type:      "job.started",
+			Timestamp: time.Now(),
+			PipelineID: job.PipelineID,
+			JobID:     job.ID,
+		})
+	} else if job.Status == "success" || job.Status == "failed" {
+		eventType := "job.completed"
+		pe.emitEvent(Event{
+			Type:      eventType,
+			Timestamp: time.Now(),
+			PipelineID: job.PipelineID,
+			JobID:     job.ID,
+			Data: map[string]interface{}{
+				"status": job.Status,
+			},
+		})
+	}
+}
+
+// UpdateJob updates a job in the engine
+func (pe *PipelineEngine) UpdateJob(job *Job) error {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
+	// Check if the job exists
+	_, exists := pe.jobs[job.ID]
+	if !exists {
+		return fmt.Errorf("job with ID %s not found", job.ID)
+	}
+	
+	// Update the job
+	pe.jobs[job.ID] = job
+	
+	return nil
+}
+
+// EmitStepStartedEvent emits a step started event
+func (pe *PipelineEngine) EmitStepStartedEvent(pipelineID, jobID, stepID string) {
+	pe.emitEvent(Event{
+		Type:       "step.started",
+		Timestamp:  time.Now(),
+		PipelineID: pipelineID,
+		JobID:      jobID,
+		StepID:     stepID,
+	})
+}
+
+// EmitStepCompletedEvent emits a step completed event
+func (pe *PipelineEngine) EmitStepCompletedEvent(pipelineID, jobID, stepID, status string) {
+	pe.emitEvent(Event{
+		Type:       "step.completed",
+		Timestamp:  time.Now(),
+		PipelineID: pipelineID,
+		JobID:      jobID,
+		StepID:     stepID,
+		Data: map[string]interface{}{
+			"status": status,
+		},
+	})
+}
+
+// EmitJobCompletedEvent emits a job completed event
+func (pe *PipelineEngine) EmitJobCompletedEvent(pipelineID, jobID, status string) {
+	pe.emitEvent(Event{
+		Type:       "job.completed",
+		Timestamp:  time.Now(),
+		PipelineID: pipelineID,
+		JobID:      jobID,
+		Data: map[string]interface{}{
+			"status": status,
+		},
+	})
 } 

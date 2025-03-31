@@ -42,6 +42,9 @@ func main() {
 
 	// Create some sample data for testing
 	createSampleData(engine)
+	
+	// Start a goroutine to simulate job progress
+	go simulateJobProgress(engine)
 
 	// Start watching for plugins and samples
 	log.Println("Watching plugins and samples...")
@@ -140,5 +143,568 @@ func createSampleData(engine *core.PipelineEngine) {
 
 	if err := engine.CreatePipeline(pipeline); err != nil {
 		log.Printf("Error creating sample pipeline: %v", err)
+	}
+	
+	// Create a second pipeline (secure-build) based on a more complex example
+	secureBuildPipeline := &core.Pipeline{
+		ID:          "secure-build",
+		Name:        "Secure Build Pipeline",
+		Description: "A comprehensive secure CI/CD pipeline with security scanning",
+		Stages: []core.Stage{
+			{
+				ID:   "pre-build",
+				Name: "Pre-Build",
+				Steps: []core.Step{
+					{
+						ID:      "setup",
+						Name:    "Setup Environment",
+						Type:    "script",
+						Command: "echo 'Setting up environment'",
+					},
+					{
+						ID:      "dependencies",
+						Name:    "Install Dependencies",
+						Type:    "script",
+						Command: "echo 'Installing dependencies'",
+					},
+				},
+			},
+			{
+				ID:   "security-checks",
+				Name: "Security Checks",
+				Steps: []core.Step{
+					{
+						ID:     "secret-scan",
+						Name:   "Secret Scanner",
+						Type:   "secret-scan",
+						Plugin: "security",
+						Config: map[string]interface{}{
+							"scanTypes":        []string{"secret"},
+							"severityThreshold": "HIGH",
+							"failOnViolation":  true,
+						},
+					},
+					{
+						ID:     "code-scan",
+						Name:   "Code Security Scanner",
+						Type:   "vulnerability-scan",
+						Plugin: "security",
+						Config: map[string]interface{}{
+							"scanTypes":        []string{"code"},
+							"severityThreshold": "MEDIUM",
+						},
+					},
+				},
+			},
+			{
+				ID:   "build",
+				Name: "Build",
+				Steps: []core.Step{
+					{
+						ID:      "build-app",
+						Name:    "Build Application",
+						Type:    "script",
+						Command: "echo 'Building application'",
+					},
+				},
+			},
+			{
+				ID:   "test",
+				Name: "Test",
+				Steps: []core.Step{
+					{
+						ID:      "unit-tests",
+						Name:    "Run Unit Tests",
+						Type:    "script",
+						Command: "echo 'Running unit tests'",
+					},
+					{
+						ID:      "integration-tests",
+						Name:    "Run Integration Tests",
+						Type:    "script",
+						Command: "echo 'Running integration tests'",
+					},
+				},
+			},
+			{
+				ID:   "deploy",
+				Name: "Deploy",
+				Steps: []core.Step{
+					{
+						ID:      "deploy-app",
+						Name:    "Deploy Application",
+						Type:    "script",
+						Command: "echo 'Deploying application'",
+					},
+				},
+			},
+		},
+		CreatedAt: time.Now().Add(-24 * time.Hour),
+		UpdatedAt: time.Now().Add(-24 * time.Hour),
+	}
+
+	if err := engine.CreatePipeline(secureBuildPipeline); err != nil {
+		log.Printf("Error creating secure build pipeline: %v", err)
+	}
+	
+	// Create sample jobs for the pipelines
+	createSampleJobs(engine)
+}
+
+// createSampleJobs creates sample jobs for the pipelines
+func createSampleJobs(engine *core.PipelineEngine) {
+	// Create a completed job for pipeline-1
+	completedJob := &core.Job{
+		ID:         "job-1",
+		PipelineID: "pipeline-1",
+		Status:     "success",
+		StartedAt:  time.Now().Add(-2 * time.Hour),
+		EndedAt:    time.Now().Add(-1 * time.Hour),
+		Steps: []core.StepStatus{
+			{
+				ID:        "step-1",
+				Name:      "Build Application",
+				Status:    "success",
+				StartedAt: time.Now().Add(-2 * time.Hour),
+				EndedAt:   time.Now().Add(-1*time.Hour - 30*time.Minute),
+				ExitCode:  0,
+				Output:    "Build successful!",
+			},
+			{
+				ID:        "step-2",
+				Name:      "Run Tests",
+				Status:    "success",
+				StartedAt: time.Now().Add(-1*time.Hour - 30*time.Minute),
+				EndedAt:   time.Now().Add(-1*time.Hour - 15*time.Minute),
+				ExitCode:  0,
+				Output:    "All tests passed!",
+			},
+			{
+				ID:        "step-3",
+				Name:      "Vulnerability Scan",
+				Status:    "success",
+				StartedAt: time.Now().Add(-1*time.Hour - 15*time.Minute),
+				EndedAt:   time.Now().Add(-1*time.Hour - 10*time.Minute),
+				ExitCode:  0,
+				Output:    "No vulnerabilities found!",
+			},
+			{
+				ID:        "step-4",
+				Name:      "Secret Scan",
+				Status:    "success",
+				StartedAt: time.Now().Add(-1*time.Hour - 10*time.Minute),
+				EndedAt:   time.Now().Add(-1 * time.Hour),
+				ExitCode:  0,
+				Output:    "No secrets found!",
+			},
+		},
+		Logs: []core.LogEntry{
+			{
+				Timestamp: time.Now().Add(-2 * time.Hour),
+				Level:     "info",
+				Message:   "Job started",
+			},
+			{
+				Timestamp: time.Now().Add(-1*time.Hour - 30*time.Minute),
+				Level:     "info",
+				Message:   "Build step completed successfully",
+				StepID:    "step-1",
+			},
+			{
+				Timestamp: time.Now().Add(-1*time.Hour - 15*time.Minute),
+				Level:     "info",
+				Message:   "Test step completed successfully",
+				StepID:    "step-2",
+			},
+			{
+				Timestamp: time.Now().Add(-1 * time.Hour),
+				Level:     "info",
+				Message:   "Job completed successfully",
+			},
+		},
+	}
+	engine.AddJob(completedJob)
+	
+	// Create jobs for secure-build pipeline
+	// A failed job
+	failedJob := &core.Job{
+		ID:         "job-2",
+		PipelineID: "secure-build",
+		Status:     "failed",
+		StartedAt:  time.Now().Add(-12 * time.Hour),
+		EndedAt:    time.Now().Add(-11 * time.Hour),
+		Steps: []core.StepStatus{
+			{
+				ID:        "setup",
+				Name:      "Setup Environment",
+				Status:    "success",
+				StartedAt: time.Now().Add(-12 * time.Hour),
+				EndedAt:   time.Now().Add(-12*time.Hour + 10*time.Minute),
+				ExitCode:  0,
+				Output:    "Environment setup complete",
+			},
+			{
+				ID:        "dependencies",
+				Name:      "Install Dependencies",
+				Status:    "success",
+				StartedAt: time.Now().Add(-12*time.Hour + 10*time.Minute),
+				EndedAt:   time.Now().Add(-12*time.Hour + 20*time.Minute),
+				ExitCode:  0,
+				Output:    "Dependencies installed",
+			},
+			{
+				ID:        "secret-scan",
+				Name:      "Secret Scanner",
+				Status:    "failed",
+				StartedAt: time.Now().Add(-12*time.Hour + 20*time.Minute),
+				EndedAt:   time.Now().Add(-12*time.Hour + 30*time.Minute),
+				ExitCode:  1,
+				Output:    "Found 2 potential secrets in the codebase!",
+			},
+		},
+		Logs: []core.LogEntry{
+			{
+				Timestamp: time.Now().Add(-12 * time.Hour),
+				Level:     "info",
+				Message:   "Job started",
+			},
+			{
+				Timestamp: time.Now().Add(-12*time.Hour + 20*time.Minute),
+				Level:     "info",
+				Message:   "Starting security checks",
+				StepID:    "secret-scan",
+			},
+			{
+				Timestamp: time.Now().Add(-12*time.Hour + 25*time.Minute),
+				Level:     "error",
+				Message:   "Found AWS access key in config files",
+				StepID:    "secret-scan",
+			},
+			{
+				Timestamp: time.Now().Add(-12*time.Hour + 30*time.Minute),
+				Level:     "error",
+				Message:   "Secret scan failed: potential secrets found",
+				StepID:    "secret-scan",
+			},
+		},
+	}
+	engine.AddJob(failedJob)
+	
+	// A successful job
+	successJob := &core.Job{
+		ID:         "job-3",
+		PipelineID: "secure-build",
+		Status:     "success",
+		StartedAt:  time.Now().Add(-6 * time.Hour),
+		EndedAt:    time.Now().Add(-5 * time.Hour),
+		Steps: []core.StepStatus{
+			{
+				ID:        "setup",
+				Name:      "Setup Environment",
+				Status:    "success",
+				StartedAt: time.Now().Add(-6 * time.Hour),
+				EndedAt:   time.Now().Add(-6*time.Hour + 5*time.Minute),
+				ExitCode:  0,
+				Output:    "Environment setup complete",
+			},
+			{
+				ID:        "dependencies",
+				Name:      "Install Dependencies",
+				Status:    "success",
+				StartedAt: time.Now().Add(-6*time.Hour + 5*time.Minute),
+				EndedAt:   time.Now().Add(-6*time.Hour + 15*time.Minute),
+				ExitCode:  0,
+				Output:    "Dependencies installed",
+			},
+			{
+				ID:        "secret-scan",
+				Name:      "Secret Scanner",
+				Status:    "success",
+				StartedAt: time.Now().Add(-6*time.Hour + 15*time.Minute),
+				EndedAt:   time.Now().Add(-6*time.Hour + 25*time.Minute),
+				ExitCode:  0,
+				Output:    "No secrets found",
+			},
+			{
+				ID:        "code-scan",
+				Name:      "Code Security Scanner",
+				Status:    "success",
+				StartedAt: time.Now().Add(-6*time.Hour + 25*time.Minute),
+				EndedAt:   time.Now().Add(-6*time.Hour + 35*time.Minute),
+				ExitCode:  0,
+				Output:    "No vulnerabilities found",
+			},
+			{
+				ID:        "build-app",
+				Name:      "Build Application",
+				Status:    "success",
+				StartedAt: time.Now().Add(-6*time.Hour + 35*time.Minute),
+				EndedAt:   time.Now().Add(-6*time.Hour + 45*time.Minute),
+				ExitCode:  0,
+				Output:    "Build successful",
+			},
+		},
+		Logs: []core.LogEntry{
+			{
+				Timestamp: time.Now().Add(-6 * time.Hour),
+				Level:     "info",
+				Message:   "Job started",
+			},
+			{
+				Timestamp: time.Now().Add(-6*time.Hour + 15*time.Minute),
+				Level:     "info",
+				Message:   "Starting security checks",
+			},
+			{
+				Timestamp: time.Now().Add(-6*time.Hour + 35*time.Minute),
+				Level:     "info",
+				Message:   "Security checks passed",
+			},
+			{
+				Timestamp: time.Now().Add(-5 * time.Hour),
+				Level:     "info",
+				Message:   "Job completed successfully",
+			},
+		},
+	}
+	engine.AddJob(successJob)
+	
+	// A running job
+	runningJob := &core.Job{
+		ID:         "job-4",
+		PipelineID: "secure-build",
+		Status:     "running",
+		StartedAt:  time.Now().Add(-15 * time.Minute),
+		Steps: []core.StepStatus{
+			{
+				ID:        "setup",
+				Name:      "Setup Environment",
+				Status:    "success",
+				StartedAt: time.Now().Add(-15 * time.Minute),
+				EndedAt:   time.Now().Add(-12 * time.Minute),
+				ExitCode:  0,
+				Output:    "Environment setup complete",
+			},
+			{
+				ID:        "dependencies",
+				Name:      "Install Dependencies",
+				Status:    "success",
+				StartedAt: time.Now().Add(-12 * time.Minute),
+				EndedAt:   time.Now().Add(-8 * time.Minute),
+				ExitCode:  0,
+				Output:    "Dependencies installed",
+			},
+			{
+				ID:        "secret-scan",
+				Name:      "Secret Scanner",
+				Status:    "success",
+				StartedAt: time.Now().Add(-8 * time.Minute),
+				EndedAt:   time.Now().Add(-5 * time.Minute),
+				ExitCode:  0,
+				Output:    "No secrets found",
+			},
+			{
+				ID:        "code-scan",
+				Name:      "Code Security Scanner",
+				Status:    "running",
+				StartedAt: time.Now().Add(-5 * time.Minute),
+				Output:    "Scanning code for vulnerabilities...",
+			},
+		},
+		Logs: []core.LogEntry{
+			{
+				Timestamp: time.Now().Add(-15 * time.Minute),
+				Level:     "info",
+				Message:   "Job started",
+			},
+			{
+				Timestamp: time.Now().Add(-12 * time.Minute),
+				Level:     "info",
+				Message:   "Environment setup complete",
+				StepID:    "setup",
+			},
+			{
+				Timestamp: time.Now().Add(-8 * time.Minute),
+				Level:     "info",
+				Message:   "Dependencies installed successfully",
+				StepID:    "dependencies",
+			},
+			{
+				Timestamp: time.Now().Add(-7 * time.Minute),
+				Level:     "info", 
+				Message:   "Starting secret scan",
+				StepID:    "secret-scan",
+			},
+			{
+				Timestamp: time.Now().Add(-5 * time.Minute),
+				Level:     "info",
+				Message:   "Secret scan complete, no secrets found",
+				StepID:    "secret-scan",
+			},
+			{
+				Timestamp: time.Now().Add(-5 * time.Minute),
+				Level:     "info",
+				Message:   "Starting code security scan",
+				StepID:    "code-scan",
+			},
+			{
+				Timestamp: time.Now().Add(-2 * time.Minute),
+				Level:     "info",
+				Message:   "Scanning dependencies for vulnerabilities...",
+				StepID:    "code-scan",
+			},
+		},
+	}
+	engine.AddJob(runningJob)
+}
+
+// simulateJobProgress updates the running job to simulate progress
+func simulateJobProgress(engine *core.PipelineEngine) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	
+	codeScanComplete := false
+	buildStepStarted := false
+	buildStepComplete := false
+	
+	for range ticker.C {
+		// Get the running job
+		job, err := engine.GetJob("secure-build", "job-4")
+		if err != nil {
+			log.Printf("Error getting job: %v", err)
+			continue
+		}
+		
+		// If job is no longer running, stop simulating
+		if job.Status != "running" {
+			log.Println("Job is no longer running, stopping simulation")
+			return
+		}
+		
+		// Stage 1: Complete code scan
+		if !codeScanComplete {
+			// Create a modified copy of the job
+			updatedJob := *job
+			
+			// Complete the code scan step
+			for i, step := range updatedJob.Steps {
+				if step.ID == "code-scan" {
+					updatedJob.Steps[i].Status = "success"
+					updatedJob.Steps[i].EndedAt = time.Now()
+					updatedJob.Steps[i].ExitCode = 0
+					updatedJob.Steps[i].Output = "No vulnerabilities found"
+					
+					// Add log entry
+					updatedJob.Logs = append(updatedJob.Logs, core.LogEntry{
+						Timestamp: time.Now(),
+						Level:     "info",
+						Message:   "Code scan completed successfully",
+						StepID:    "code-scan",
+					})
+					
+					codeScanComplete = true
+					break
+				}
+			}
+			
+			// Update the job in the engine
+			err = engine.UpdateJob(&updatedJob)
+			if err != nil {
+				log.Printf("Error updating job: %v", err)
+				continue
+			}
+			
+			// Emit step completed event through the engine
+			engine.EmitStepCompletedEvent("secure-build", "job-4", "code-scan", "success")
+			continue
+		}
+		
+		// Stage 2: Start build step
+		if codeScanComplete && !buildStepStarted {
+			// Create a modified copy of the job
+			updatedJob := *job
+			
+			// Add build step
+			updatedJob.Steps = append(updatedJob.Steps, core.StepStatus{
+				ID:        "build-app",
+				Name:      "Build Application",
+				Status:    "running",
+				StartedAt: time.Now(),
+				Output:    "Building application...",
+			})
+			
+			// Add log entry
+			updatedJob.Logs = append(updatedJob.Logs, core.LogEntry{
+				Timestamp: time.Now(),
+				Level:     "info",
+				Message:   "Starting build step",
+				StepID:    "build-app",
+			})
+			
+			buildStepStarted = true
+			
+			// Update the job in the engine
+			err = engine.UpdateJob(&updatedJob)
+			if err != nil {
+				log.Printf("Error updating job: %v", err)
+				continue
+			}
+			
+			// Emit step started event through the engine
+			engine.EmitStepStartedEvent("secure-build", "job-4", "build-app")
+			continue
+		}
+		
+		// Stage 3: Complete build step and job
+		if buildStepStarted && !buildStepComplete {
+			// Create a modified copy of the job
+			updatedJob := *job
+			
+			// Complete the build step
+			for i, step := range updatedJob.Steps {
+				if step.ID == "build-app" {
+					updatedJob.Steps[i].Status = "success"
+					updatedJob.Steps[i].EndedAt = time.Now()
+					updatedJob.Steps[i].ExitCode = 0
+					updatedJob.Steps[i].Output = "Build completed successfully"
+					
+					// Add log entry
+					updatedJob.Logs = append(updatedJob.Logs, core.LogEntry{
+						Timestamp: time.Now(),
+						Level:     "info",
+						Message:   "Build completed successfully",
+						StepID:    "build-app",
+					})
+					
+					buildStepComplete = true
+					break
+				}
+			}
+			
+			// Complete the job
+			updatedJob.Status = "success"
+			updatedJob.EndedAt = time.Now()
+			
+			// Add final log entry
+			updatedJob.Logs = append(updatedJob.Logs, core.LogEntry{
+				Timestamp: time.Now(),
+				Level:     "info",
+				Message:   "Job completed successfully",
+			})
+			
+			// Update the job in the engine
+			err = engine.UpdateJob(&updatedJob)
+			if err != nil {
+				log.Printf("Error updating job: %v", err)
+				continue
+			}
+			
+			// Emit step completed event through the engine
+			engine.EmitStepCompletedEvent("secure-build", "job-4", "build-app", "success")
+			
+			// Emit job completed event through the engine
+			engine.EmitJobCompletedEvent("secure-build", "job-4", "success")
+			return // Simulation complete
+		}
 	}
 } 

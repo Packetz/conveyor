@@ -29,4 +29,9 @@ func SetupRoutes(r *gin.Engine, engine *core.PipelineEngine) {
 	// Security routes
 	securityRoutes := api.Group("/security")
 	routes.RegisterSecurityRoutes(securityRoutes, engine)
+	
+	// System stats routes
+	api.GET("/system/stats", func(c *gin.Context) {
+		routes.GetSystemStats(c)
+	})
 } 

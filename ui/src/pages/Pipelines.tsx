@@ -20,7 +20,8 @@ import {
   AccordionSummary,
   AccordionDetails,
   Alert,
-  Snackbar
+  Snackbar,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -28,7 +29,19 @@ import {
   Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon
 } from '@mui/icons-material';
-import api, { Pipeline, PipelineStep } from '../services/api';
+import api, { Pipeline, PipelineStep, PipelineCreateDto } from '../services/api';
+
+// Define types for step creation
+interface StepForm {
+  name: string;
+  type: string;
+  config: {
+    command?: string;
+    scanTypes?: string[];
+    severityThreshold?: string;
+    [key: string]: any;
+  };
+}
 
 const Pipelines = () => {
   const navigate = useNavigate();
@@ -36,10 +49,15 @@ const Pipelines = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openDialog, setOpenDialog] = useState(false);
-  const [newPipeline, setNewPipeline] = useState({
+  const [newPipeline, setNewPipeline] = useState<PipelineCreateDto>({
     name: '',
     description: '',
     steps: []
+  });
+  const [newStep, setNewStep] = useState<StepForm>({
+    name: '',
+    type: 'script',
+    config: { command: '' }
   });
   const [snackbar, setSnackbar] = useState({
     open: false,
@@ -57,6 +75,7 @@ const Pipelines = () => {
     try {
       setLoading(true);
       const data = await api.getPipelines();
+      console.log('Fetched pipelines:', data);
       setPipelines(data);
       setError(null);
     } catch (err) {
@@ -128,7 +147,16 @@ const Pipelines = () => {
 
   const handleRunPipeline = async (id: string) => {
     try {
+      // Optimistically update the pipeline status
+      setPipelines(prevPipelines =>
+        prevPipelines.map(p =>
+          p.id === id ? { ...p, status: 'running' } : p
+        )
+      );
+
+      // Call the API to run the pipeline
       await api.runPipeline(id);
+
       setSnackbar({
         open: true,
         message: 'Pipeline started',
@@ -136,6 +164,10 @@ const Pipelines = () => {
       });
     } catch (err) {
       console.error('Error running pipeline:', err);
+
+      // Revert the optimistic update if there's an error
+      fetchPipelines();
+
       setSnackbar({
         open: true,
         message: 'Failed to run pipeline',
@@ -193,6 +225,42 @@ const Pipelines = () => {
         </Button>
       </Box>
 
+      {/* Debug info */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2">Debug Info:</Typography>
+        <Typography variant="body2">
+          Pipelines loaded: {pipelines.length}
+        </Typography>
+        <Typography variant="body2">
+          Loading state: {loading ? 'Loading...' : 'Done'}
+        </Typography>
+        {error && (
+          <Typography variant="body2" color="error">
+            Error: {error}
+          </Typography>
+        )}
+
+        {/* Data structure warning */}
+        {pipelines.length > 0 && !pipelines[0].steps && (
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            Pipeline data structure mismatch. Expected 'steps' array but got: {JSON.stringify(Object.keys(pipelines[0]))}
+          </Alert>
+        )}
+
+        {/* Pipeline structure debug */}
+        {pipelines.length > 0 && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="body2">
+              First pipeline structure:
+              ID: {pipelines[0].id},
+              Name: {pipelines[0].name},
+              Steps: {pipelines[0].steps?.length || 0},
+              Stages: {pipelines[0].stages?.length || 0}
+            </Typography>
+          </Box>
+        )}
+      </Box>
+
       {loading ? (
         <LinearProgress />
       ) : error ? (
@@ -212,11 +280,13 @@ const Pipelines = () => {
                   <CardContent>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6">{pipeline.name}</Typography>
-                      <Chip
-                        label={pipeline.status.toUpperCase()}
-                        color={getStatusColor(pipeline.status)}
-                        size="small"
-                      />
+                      {pipeline.status && (
+                        <Chip
+                          label={pipeline.status.toUpperCase()}
+                          color={getStatusColor(pipeline.status)}
+                          size="small"
+                        />
+                      )}
                     </Box>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       {pipeline.description}
@@ -227,41 +297,105 @@ const Pipelines = () => {
 
                     <Accordion>
                       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                        <Typography>Steps ({pipeline.steps.length})</Typography>
+                        <Typography>
+                          {pipeline.stages
+                            ? `Stages (${pipeline.stages.length})`
+                            : `Steps (${Array.isArray(pipeline.steps) ? pipeline.steps.length : 0})`}
+                        </Typography>
                       </AccordionSummary>
                       <AccordionDetails>
-                        {pipeline.steps.map((step: PipelineStep, index: number) => (
-                          <Box key={step.id} sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
-                            <Chip
-                              size="small"
-                              label={`${index + 1}`}
-                              sx={{ mr: 1, minWidth: 30 }}
-                            />
-                            <Typography variant="body2" sx={{ mr: 1 }}>{step.name}</Typography>
-                            <Chip
-                              size="small"
-                              label={step.status.toUpperCase()}
-                              color={getStatusColor(step.status)}
-                            />
-                          </Box>
-                        ))}
+                        {pipeline.stages ? (
+                          // Display organized by stages
+                          pipeline.stages.map((stage, stageIndex) => (
+                            <Box key={stage.id} sx={{ mb: 3 }}>
+                              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
+                                {stageIndex + 1}. {stage.name}
+                                {stage.parallel && (
+                                  <Chip
+                                    size="small"
+                                    label="Parallel"
+                                    color="info"
+                                    variant="outlined"
+                                    sx={{ ml: 1, height: 20, fontSize: '0.7rem' }}
+                                  />
+                                )}
+                              </Typography>
+
+                              {stage.steps.map((step, stepIndex) => (
+                                <Box
+                                  key={step.id}
+                                  sx={{
+                                    mb: 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    pl: 2,
+                                    borderLeft: '1px dashed #666'
+                                  }}
+                                >
+                                  <Typography variant="body2" sx={{ mr: 1, color: 'text.secondary' }}>
+                                    {stageIndex + 1}.{stepIndex + 1}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ mr: 1 }}>{step.name}</Typography>
+                                  {step.status && (
+                                    <Chip
+                                      size="small"
+                                      label={step.status.toUpperCase()}
+                                      color={getStatusColor(step.status)}
+                                    />
+                                  )}
+                                </Box>
+                              ))}
+                            </Box>
+                          ))
+                        ) : (
+                          // Fallback to flat steps display
+                          Array.isArray(pipeline.steps) && pipeline.steps.map((step: PipelineStep, index: number) => (
+                            <Box key={step.id || index} sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
+                              <Chip
+                                size="small"
+                                label={`${index + 1}`}
+                                sx={{ mr: 1, minWidth: 30 }}
+                              />
+                              <Typography variant="body2" sx={{ mr: 1 }}>{step.name}</Typography>
+                              {step.status && (
+                                <Chip
+                                  size="small"
+                                  label={step.status.toUpperCase()}
+                                  color={getStatusColor(step.status)}
+                                />
+                              )}
+                            </Box>
+                          ))
+                        )}
                       </AccordionDetails>
                     </Accordion>
                   </CardContent>
                   <CardActions>
                     <Button
                       size="small"
-                      startIcon={<PlayArrowIcon />}
+                      startIcon={pipeline.status === 'running' ? null : <PlayArrowIcon />}
                       onClick={() => handleRunPipeline(pipeline.id)}
                       disabled={pipeline.status === 'running'}
+                      color="primary"
+                      variant={pipeline.status === 'running' ? 'outlined' : 'text'}
                     >
-                      Run
+                      {pipeline.status === 'running' ? (
+                        <>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box sx={{ width: 16, height: 16, mr: 1 }}>
+                              <CircularProgress size={16} thickness={6} />
+                            </Box>
+                            Running
+                          </Box>
+                        </>
+                      ) : 'Run'}
                     </Button>
                     <Box sx={{ flexGrow: 1 }} />
                     <IconButton
                       size="small"
                       color="error"
                       onClick={() => handleDeletePipeline(pipeline.id)}
+                      disabled={pipeline.status === 'running'}
                     >
                       <DeleteIcon />
                     </IconButton>
@@ -296,15 +430,150 @@ const Pipelines = () => {
             rows={3}
             value={newPipeline.description}
             onChange={(e) => setNewPipeline({ ...newPipeline, description: e.target.value })}
+            sx={{ mb: 3 }}
           />
-          {/* TODO: Add UI for configuring pipeline steps */}
+
+          {/* Pipeline Steps Section */}
+          <Typography variant="subtitle1" sx={{ mb: 1 }}>Pipeline Steps</Typography>
+
+          {/* List existing steps */}
+          {newPipeline.steps.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              {newPipeline.steps.map((step, index) => (
+                <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1, p: 1, border: '1px solid #ddd', borderRadius: 1 }}>
+                  <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                    {index + 1}. {step.name} ({step.type})
+                    {step.type === 'script' && step.config.command &&
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        $ {step.config.command}
+                      </Typography>
+                    }
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => {
+                      const updatedSteps = [...newPipeline.steps];
+                      updatedSteps.splice(index, 1);
+                      setNewPipeline({ ...newPipeline, steps: updatedSteps });
+                    }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {/* Add new step form */}
+          <Box sx={{ border: '1px solid #ddd', borderRadius: 1, p: 2, mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>Add New Step</Typography>
+            <TextField
+              margin="dense"
+              label="Step Name"
+              fullWidth
+              variant="outlined"
+              size="small"
+              value={newStep.name}
+              onChange={(e) => setNewStep({ ...newStep, name: e.target.value })}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              select
+              margin="dense"
+              label="Step Type"
+              fullWidth
+              variant="outlined"
+              size="small"
+              value={newStep.type}
+              onChange={(e) => {
+                const type = e.target.value;
+                // Initialize appropriate config based on type
+                let config = {};
+                if (type === 'script') {
+                  config = { command: '' };
+                } else if (type === 'secret-scan' || type === 'vulnerability-scan') {
+                  config = { scanTypes: [], severityThreshold: 'MEDIUM' };
+                }
+                setNewStep({ ...newStep, type, config });
+              }}
+              sx={{ mb: 2 }}
+            >
+              <option value="script">Script</option>
+              <option value="secret-scan">Secret Scan</option>
+              <option value="vulnerability-scan">Vulnerability Scan</option>
+            </TextField>
+
+            {/* Dynamic config fields based on step type */}
+            {newStep.type === 'script' && (
+              <TextField
+                margin="dense"
+                label="Command"
+                fullWidth
+                variant="outlined"
+                size="small"
+                value={newStep.config.command || ''}
+                onChange={(e) => setNewStep({
+                  ...newStep,
+                  config: { ...newStep.config, command: e.target.value }
+                })}
+              />
+            )}
+
+            {(newStep.type === 'secret-scan' || newStep.type === 'vulnerability-scan') && (
+              <>
+                <TextField
+                  select
+                  margin="dense"
+                  label="Severity Threshold"
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  value={newStep.config.severityThreshold || 'MEDIUM'}
+                  onChange={(e) => setNewStep({
+                    ...newStep,
+                    config: { ...newStep.config, severityThreshold: e.target.value }
+                  })}
+                  sx={{ mb: 2 }}
+                >
+                  <option value="LOW">Low</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="HIGH">High</option>
+                  <option value="CRITICAL">Critical</option>
+                </TextField>
+              </>
+            )}
+
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                if (newStep.name) {
+                  setNewPipeline({
+                    ...newPipeline,
+                    steps: [...newPipeline.steps, newStep]
+                  });
+                  // Reset step form
+                  setNewStep({
+                    name: '',
+                    type: 'script',
+                    config: { command: '' }
+                  });
+                }
+              }}
+              disabled={!newStep.name || (newStep.type === 'script' && !newStep.config.command)}
+              sx={{ mt: 1 }}
+            >
+              Add Step
+            </Button>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
           <Button
             onClick={handleCreatePipeline}
             variant="contained"
-            disabled={!newPipeline.name}
+            disabled={!newPipeline.name || newPipeline.steps.length === 0}
           >
             Create
           </Button>
