@@ -2,427 +2,438 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
+
+// Event represents a pipeline event
+type Event struct {
+	Type      string                 `json:"type"`
+	Timestamp time.Time              `json:"timestamp"`
+	PipelineID string                `json:"pipelineId,omitempty"`
+	JobID     string                 `json:"jobId,omitempty"`
+	StepID    string                 `json:"stepId,omitempty"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+}
 
 // Pipeline represents a CI/CD pipeline
 type Pipeline struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Steps       []Step                 `json:"steps"`
-	Status      string                 `json:"status"`
+	Description string                 `json:"description,omitempty"`
+	Stages      []Stage                `json:"stages"`
+	Triggers    []Trigger              `json:"triggers,omitempty"`
+	Cache       *CacheConfig           `json:"cache,omitempty"`
+	Environment map[string]string      `json:"environment,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 	CreatedAt   time.Time              `json:"createdAt"`
 	UpdatedAt   time.Time              `json:"updatedAt"`
-	Cache       map[string]interface{} `json:"cache,omitempty"`
+}
+
+// Stage represents a stage in a pipeline
+type Stage struct {
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+	Steps     []Step                 `json:"steps"`
+	Needs     []string               `json:"needs,omitempty"`
+	When      *ConditionalExecution  `json:"when,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	Parallel  bool                   `json:"parallel"`
+	DependsOn []string               `json:"dependsOn,omitempty"`
+}
+
+// Step represents a step in a pipeline stage
+type Step struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Type        string                 `json:"type"`
+	Plugin      string                 `json:"plugin,omitempty"`
+	Command     string                 `json:"command,omitempty"`
+	Image       string                 `json:"image,omitempty"`
+	Environment map[string]string      `json:"environment,omitempty"`
+	Config      map[string]interface{} `json:"config,omitempty"`
+	When        *ConditionalExecution  `json:"when,omitempty"`
+	Retry       *RetryConfig           `json:"retry,omitempty"`
+	Timeout     string                 `json:"timeout,omitempty"`
+	Cache       *CacheConfig           `json:"cache,omitempty"`
+	DependsOn   []string               `json:"dependsOn,omitempty"`
+	Outputs     map[string]string      `json:"outputs,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// Step represents a step in a pipeline
-type Step struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Type     string                 `json:"type"`
-	Config   map[string]interface{} `json:"config"`
-	Status   string                 `json:"status"`
-	DependsOn []string              `json:"dependsOn,omitempty"`
-	Retries  int                    `json:"retries"`
-	Cache    map[string]interface{} `json:"cache,omitempty"`
+// Trigger represents a pipeline trigger
+type Trigger struct {
+	Type     string   `json:"type"`
+	Branches []string `json:"branches,omitempty"`
+	Events   []string `json:"events,omitempty"`
+	Paths    []string `json:"paths,omitempty"`
 }
 
-// PipelineEngine handles the execution of pipelines
-type PipelineEngine struct {
-	pipelines      map[string]*Pipeline
-	plugins        map[string]Plugin
-	mu             sync.RWMutex
-	eventListeners []func(Event)
-	cacheManager   *CacheManager
+// ConditionalExecution represents a condition for executing a step or stage
+type ConditionalExecution struct {
+	Branch  string `json:"branch,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Custom  string `json:"custom,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
 }
 
-// CacheManager handles caching of build artifacts and dependencies
-type CacheManager struct {
-	cache map[string]interface{}
-	mu    sync.RWMutex
+// RetryConfig represents retry configuration for a step
+type RetryConfig struct {
+	MaxAttempts int    `json:"maxAttempts"`
+	Interval    string `json:"interval,omitempty"`
+	ExponentialBackoff bool `json:"exponentialBackoff,omitempty"`
 }
 
-// Event represents a pipeline event
-type Event struct {
-	Type      string      `json:"type"`
-	Timestamp time.Time   `json:"timestamp"`
-	Pipeline  string      `json:"pipeline"`
-	Step      string      `json:"step,omitempty"`
-	Data      interface{} `json:"data,omitempty"`
+// CacheConfig represents caching configuration
+type CacheConfig struct {
+	Key    string   `json:"key"`
+	Paths  []string `json:"paths"`
+	Policy string   `json:"policy,omitempty"`
 }
 
-// Plugin interface for extending pipeline functionality
-type Plugin interface {
-	Execute(ctx context.Context, step Step) (map[string]interface{}, error)
-	GetManifest() PluginManifest
+// Job represents a pipeline execution
+type Job struct {
+	ID         string                 `json:"id"`
+	PipelineID string                 `json:"pipelineId"`
+	Status     string                 `json:"status"`
+	Steps      []StepStatus           `json:"steps,omitempty"`
+	StartedAt  time.Time              `json:"startedAt"`
+	EndedAt    time.Time              `json:"endedAt,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Logs       []LogEntry             `json:"logs,omitempty"`
 }
 
-// PluginManifest contains metadata about a plugin
+// StepStatus represents the status of a step execution
+type StepStatus struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	StartedAt time.Time `json:"startedAt"`
+	EndedAt   time.Time `json:"endedAt,omitempty"`
+	ExitCode  int       `json:"exitCode,omitempty"`
+	Output    string    `json:"output,omitempty"`
+}
+
+// LogEntry represents a log entry
+type LogEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	StepID    string    `json:"stepId,omitempty"`
+}
+
+// PluginManifest represents a plugin manifest
 type PluginManifest struct {
 	Name        string   `json:"name"`
 	Version     string   `json:"version"`
 	Description string   `json:"description"`
 	Author      string   `json:"author"`
+	Type        string   `json:"type"`
 	StepTypes   []string `json:"stepTypes"`
+}
+
+// PipelineEngine handles pipeline execution
+type PipelineEngine struct {
+	pipelines       map[string]*Pipeline
+	jobs            map[string]*Job
+	plugins         map[string]Plugin
+	eventListeners  map[string]chan Event
+	cacheManager    *CacheManager
+	mu              sync.RWMutex
+	eventsMu        sync.RWMutex
+}
+
+// Plugin interface for pipeline plugins
+type Plugin interface {
+	Execute(ctx context.Context, step Step) (map[string]interface{}, error)
+	GetManifest() PluginManifest
+}
+
+// CacheManager handles caching of build artifacts
+type CacheManager struct {
+	caches map[string][]byte
+	mu     sync.RWMutex
 }
 
 // NewPipelineEngine creates a new pipeline engine
 func NewPipelineEngine() *PipelineEngine {
 	return &PipelineEngine{
-		pipelines:    make(map[string]*Pipeline),
-		plugins:      make(map[string]Plugin),
-		cacheManager: &CacheManager{cache: make(map[string]interface{})},
+		pipelines:      make(map[string]*Pipeline),
+		jobs:           make(map[string]*Job),
+		plugins:        make(map[string]Plugin),
+		eventListeners: make(map[string]chan Event),
+		cacheManager:   &CacheManager{caches: make(map[string][]byte)},
 	}
 }
 
 // RegisterPlugin registers a plugin with the engine
-func (e *PipelineEngine) RegisterPlugin(p Plugin) {
-	manifest := p.GetManifest()
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.plugins[manifest.Name] = p
+func (pe *PipelineEngine) RegisterPlugin(plugin Plugin) {
+	manifest := plugin.GetManifest()
+	pe.mu.Lock()
+	pe.plugins[manifest.Name] = plugin
+	pe.mu.Unlock()
+}
+
+// RegisterEventListener registers an event listener
+func (pe *PipelineEngine) RegisterEventListener(id string, ch chan Event) {
+	pe.eventsMu.Lock()
+	pe.eventListeners[id] = ch
+	pe.eventsMu.Unlock()
+}
+
+// UnregisterEventListener unregisters an event listener
+func (pe *PipelineEngine) UnregisterEventListener(id string) {
+	pe.eventsMu.Lock()
+	delete(pe.eventListeners, id)
+	pe.eventsMu.Unlock()
+}
+
+// emitEvent emits an event to all listeners
+func (pe *PipelineEngine) emitEvent(event Event) {
+	pe.eventsMu.RLock()
+	defer pe.eventsMu.RUnlock()
+
+	for _, ch := range pe.eventListeners {
+		select {
+		case ch <- event:
+			// Event sent successfully
+		default:
+			// Channel buffer is full, just drop the event
+		}
+	}
 }
 
 // CreatePipeline creates a new pipeline
-func (e *PipelineEngine) CreatePipeline(name, description string, steps []Step) (*Pipeline, error) {
-	now := time.Now()
-	pipeline := &Pipeline{
-		ID:          fmt.Sprintf("pl-%d", now.UnixNano()),
-		Name:        name,
-		Description: description,
-		Steps:       steps,
-		Status:      "idle",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		Cache:       make(map[string]interface{}),
-		Metadata:    make(map[string]interface{}),
+func (pe *PipelineEngine) CreatePipeline(pipeline *Pipeline) error {
+	if pipeline.ID == "" {
+		return fmt.Errorf("pipeline ID is required")
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pipelines[pipeline.ID] = pipeline
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
 
-	e.emitEvent(Event{
-		Type:      "PIPELINE_CREATED",
+	if _, exists := pe.pipelines[pipeline.ID]; exists {
+		return fmt.Errorf("pipeline with ID %s already exists", pipeline.ID)
+	}
+
+	now := time.Now()
+	pipeline.CreatedAt = now
+	pipeline.UpdatedAt = now
+
+	pe.pipelines[pipeline.ID] = pipeline
+
+	pe.emitEvent(Event{
+		Type:      "pipeline.created",
 		Timestamp: time.Now(),
-		Pipeline:  pipeline.ID,
-		Data:      pipeline,
+		PipelineID: pipeline.ID,
+		Data: map[string]interface{}{
+			"name": pipeline.Name,
+		},
 	})
+
+	return nil
+}
+
+// GetPipeline retrieves a pipeline by ID
+func (pe *PipelineEngine) GetPipeline(id string) (*Pipeline, error) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+
+	pipeline, exists := pe.pipelines[id]
+	if !exists {
+		return nil, fmt.Errorf("pipeline with ID %s not found", id)
+	}
 
 	return pipeline, nil
 }
 
-// GetPipeline retrieves a pipeline by ID
-func (e *PipelineEngine) GetPipeline(id string) (*Pipeline, error) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+// ListPipelines returns all pipelines
+func (pe *PipelineEngine) ListPipelines() []*Pipeline {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
 
-	if pipeline, ok := e.pipelines[id]; ok {
-		return pipeline, nil
-	}
-
-	return nil, fmt.Errorf("pipeline not found: %s", id)
-}
-
-// GetPipelines retrieves all pipelines
-func (e *PipelineEngine) GetPipelines() []*Pipeline {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	pipelines := make([]*Pipeline, 0, len(e.pipelines))
-	for _, p := range e.pipelines {
+	pipelines := make([]*Pipeline, 0, len(pe.pipelines))
+	for _, p := range pe.pipelines {
 		pipelines = append(pipelines, p)
 	}
 
 	return pipelines
 }
 
-// ExecutePipeline executes a pipeline with dynamic parallel execution
-func (e *PipelineEngine) ExecutePipeline(ctx context.Context, id string) error {
-	pipeline, err := e.GetPipeline(id)
-	if err != nil {
-		return err
+// DeletePipeline deletes a pipeline
+func (pe *PipelineEngine) DeletePipeline(id string) error {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+
+	if _, exists := pe.pipelines[id]; !exists {
+		return fmt.Errorf("pipeline with ID %s not found", id)
 	}
 
-	// Update pipeline status
-	e.mu.Lock()
-	pipeline.Status = "running"
-	pipeline.UpdatedAt = time.Now()
-	e.mu.Unlock()
+	delete(pe.pipelines, id)
 
-	e.emitEvent(Event{
-		Type:      "PIPELINE_STARTED",
+	pe.emitEvent(Event{
+		Type:      "pipeline.deleted",
 		Timestamp: time.Now(),
-		Pipeline:  pipeline.ID,
-		Data:      pipeline,
+		PipelineID: id,
 	})
 
-	// Build dependency graph for parallel execution
-	dependencyGraph := buildDependencyGraph(pipeline.Steps)
-	
-	// Create execution context with cancellation
-	execCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Execute steps with dependency management
-	err = e.executeStepsWithDependencies(execCtx, pipeline, dependencyGraph)
-
-	// Update pipeline status based on results
-	e.mu.Lock()
-	if err != nil {
-		pipeline.Status = "failed"
-	} else {
-		pipeline.Status = "success"
-	}
-	pipeline.UpdatedAt = time.Now()
-	e.mu.Unlock()
-
-	e.emitEvent(Event{
-		Type:      "PIPELINE_COMPLETED",
-		Timestamp: time.Now(),
-		Pipeline:  pipeline.ID,
-		Data: map[string]interface{}{
-			"status": pipeline.Status,
-			"error":  err,
-		},
-	})
-
-	return err
-}
-
-// executeStepsWithDependencies executes pipeline steps respecting dependencies
-func (e *PipelineEngine) executeStepsWithDependencies(ctx context.Context, pipeline *Pipeline, dependencyGraph map[string][]string) error {
-	var wg sync.WaitGroup
-	stepResults := make(map[string]error)
-	stepMu := sync.Mutex{}
-	
-	// Find steps with no dependencies (roots)
-	ready := findRootsInGraph(dependencyGraph)
-	remaining := len(pipeline.Steps)
-	
-	for remaining > 0 {
-		// Execute all ready steps in parallel
-		var execWg sync.WaitGroup
-		for _, stepID := range ready {
-			execWg.Add(1)
-			go func(id string) {
-				defer execWg.Done()
-				
-				// Find the step
-				var step *Step
-				for i := range pipeline.Steps {
-					if pipeline.Steps[i].ID == id {
-						step = &pipeline.Steps[i]
-						break
-					}
-				}
-				
-				if step == nil {
-					stepMu.Lock()
-					stepResults[id] = fmt.Errorf("step not found: %s", id)
-					stepMu.Unlock()
-					return
-				}
-				
-				// Check for cached results if enabled
-				cacheKey := fmt.Sprintf("%s:%s", pipeline.ID, step.ID)
-				e.cacheManager.mu.RLock()
-				cachedResult, hasCached := e.cacheManager.cache[cacheKey]
-				e.cacheManager.mu.RUnlock()
-				
-				// Update step status
-				e.mu.Lock()
-				step.Status = "running"
-				e.mu.Unlock()
-				
-				e.emitEvent(Event{
-					Type:      "STEP_STARTED",
-					Timestamp: time.Now(),
-					Pipeline:  pipeline.ID,
-					Step:      step.ID,
-					Data:      step,
-				})
-				
-				var err error
-				var result map[string]interface{}
-				
-				// Use cached result if available and cache is enabled
-				if step.Cache != nil && hasCached {
-					result = cachedResult.(map[string]interface{})
-				} else {
-					// Execute the step
-					result, err = e.executeStep(ctx, *step)
-					
-					// Cache the result if caching is enabled
-					if step.Cache != nil && err == nil {
-						e.cacheManager.mu.Lock()
-						e.cacheManager.cache[cacheKey] = result
-						e.cacheManager.mu.Unlock()
-					}
-				}
-				
-				// Handle retries
-				retries := step.Retries
-				for err != nil && retries > 0 {
-					e.emitEvent(Event{
-						Type:      "STEP_RETRY",
-						Timestamp: time.Now(),
-						Pipeline:  pipeline.ID,
-						Step:      step.ID,
-						Data: map[string]interface{}{
-							"error":       err.Error(),
-							"retriesLeft": retries,
-						},
-					})
-					
-					// Execute the step again
-					result, err = e.executeStep(ctx, *step)
-					retries--
-				}
-				
-				// Update step status
-				e.mu.Lock()
-				if err != nil {
-					step.Status = "failed"
-				} else {
-					step.Status = "success"
-				}
-				e.mu.Unlock()
-				
-				stepMu.Lock()
-				stepResults[id] = err
-				stepMu.Unlock()
-				
-				e.emitEvent(Event{
-					Type:      "STEP_COMPLETED",
-					Timestamp: time.Now(),
-					Pipeline:  pipeline.ID,
-					Step:      step.ID,
-					Data: map[string]interface{}{
-						"status": step.Status,
-						"error":  err,
-					},
-				})
-			}(stepID)
-		}
-		
-		// Wait for the current batch to complete
-		execWg.Wait()
-		
-		// Remove completed steps from the graph
-		for _, id := range ready {
-			delete(dependencyGraph, id)
-			remaining--
-		}
-		
-		// Find new ready steps (those whose dependencies are all satisfied)
-		ready = findNewReadySteps(dependencyGraph, stepResults)
-		
-		// If we have steps remaining but none are ready, we have a circular dependency
-		if remaining > 0 && len(ready) == 0 {
-			return fmt.Errorf("circular dependency detected or failed dependencies")
-		}
-	}
-	
-	// Check for any errors
-	for _, err := range stepResults {
-		if err != nil {
-			return err
-		}
-	}
-	
 	return nil
 }
 
-// executeStep executes a single pipeline step
-func (e *PipelineEngine) executeStep(ctx context.Context, step Step) (map[string]interface{}, error) {
-	// Find the appropriate plugin
-	e.mu.RLock()
-	plugin, ok := e.plugins[step.Type]
-	e.mu.RUnlock()
-	
-	if !ok {
-		return nil, fmt.Errorf("unknown step type: %s", step.Type)
+// ExecutePipeline executes a pipeline
+func (pe *PipelineEngine) ExecutePipeline(pipelineID string) error {
+	pe.mu.RLock()
+	_, exists := pe.pipelines[pipelineID]
+	pe.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("pipeline with ID %s not found", pipelineID)
 	}
-	
-	// Execute the step with the plugin
-	return plugin.Execute(ctx, step)
-}
 
-// AddEventListener adds a listener for pipeline events
-func (e *PipelineEngine) AddEventListener(listener func(Event)) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.eventListeners = append(e.eventListeners, listener)
-}
-
-// emitEvent emits an event to all listeners
-func (e *PipelineEngine) emitEvent(event Event) {
-	e.mu.RLock()
-	listeners := append([]func(Event){}, e.eventListeners...)
-	e.mu.RUnlock()
-	
-	for _, listener := range listeners {
-		go listener(event)
+	// Create a new job
+	job := &Job{
+		ID:         fmt.Sprintf("job-%d", time.Now().Unix()),
+		PipelineID: pipelineID,
+		Status:     "running",
+		StartedAt:  time.Now(),
+		Steps:      []StepStatus{},
 	}
+
+	pe.mu.Lock()
+	pe.jobs[job.ID] = job
+	pe.mu.Unlock()
+
+	pe.emitEvent(Event{
+		Type:      "job.started",
+		Timestamp: time.Now(),
+		PipelineID: pipelineID,
+		JobID:     job.ID,
+	})
+
+	// Execute the pipeline in a goroutine
+	go func() {
+		// Simulate pipeline execution
+		// In a real implementation, this would execute stages and steps
+		time.Sleep(2 * time.Second)
+
+		pe.mu.Lock()
+		job.Status = "success"
+		job.EndedAt = time.Now()
+		pe.mu.Unlock()
+
+		pe.emitEvent(Event{
+			Type:      "job.completed",
+			Timestamp: time.Now(),
+			PipelineID: pipelineID,
+			JobID:     job.ID,
+			Data: map[string]interface{}{
+				"status": "success",
+			},
+		})
+	}()
+
+	return nil
 }
 
-// Helper functions for dependency management
+// GetJob retrieves a job by ID
+func (pe *PipelineEngine) GetJob(pipelineID, jobID string) (*Job, error) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
 
-// buildDependencyGraph builds a dependency graph from steps
-func buildDependencyGraph(steps []Step) map[string][]string {
-	graph := make(map[string][]string)
-	
-	for _, step := range steps {
-		if len(step.DependsOn) > 0 {
-			graph[step.ID] = step.DependsOn
-		} else {
-			graph[step.ID] = []string{}
+	job, exists := pe.jobs[jobID]
+	if !exists {
+		return nil, fmt.Errorf("job with ID %s not found", jobID)
+	}
+
+	if job.PipelineID != pipelineID {
+		return nil, fmt.Errorf("job with ID %s is not associated with pipeline %s", jobID, pipelineID)
+	}
+
+	return job, nil
+}
+
+// ListJobs returns all jobs for a pipeline
+func (pe *PipelineEngine) ListJobs(pipelineID string) ([]*Job, error) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+
+	if _, exists := pe.pipelines[pipelineID]; !exists {
+		return nil, fmt.Errorf("pipeline with ID %s not found", pipelineID)
+	}
+
+	jobs := make([]*Job, 0)
+	for _, j := range pe.jobs {
+		if j.PipelineID == pipelineID {
+			jobs = append(jobs, j)
 		}
 	}
-	
-	return graph
+
+	return jobs, nil
 }
 
-// findRootsInGraph finds steps with no dependencies
-func findRootsInGraph(graph map[string][]string) []string {
-	var roots []string
-	
-	for id, deps := range graph {
-		if len(deps) == 0 {
-			roots = append(roots, id)
-		}
-	}
-	
-	return roots
-}
+// RetryJob retries a job
+func (pe *PipelineEngine) RetryJob(pipelineID, jobID string) error {
+	pe.mu.RLock()
+	job, exists := pe.jobs[jobID]
+	pe.mu.RUnlock()
 
-// findNewReadySteps finds steps whose dependencies are all satisfied
-func findNewReadySteps(graph map[string][]string, results map[string]error) []string {
-	var ready []string
-	
-	for id, deps := range graph {
-		allDependenciesMet := true
-		for _, dep := range deps {
-			// Check if dependency was executed and successful
-			if err, ok := results[dep]; !ok || err != nil {
-				allDependenciesMet = false
-				break
-			}
-		}
-		
-		if allDependenciesMet {
-			ready = append(ready, id)
-		}
+	if !exists {
+		return fmt.Errorf("job with ID %s not found", jobID)
 	}
-	
-	return ready
+
+	if job.PipelineID != pipelineID {
+		return fmt.Errorf("job with ID %s is not associated with pipeline %s", jobID, pipelineID)
+	}
+
+	// Create a new job based on the old one
+	newJob := &Job{
+		ID:         fmt.Sprintf("job-%d", time.Now().Unix()),
+		PipelineID: pipelineID,
+		Status:     "running",
+		StartedAt:  time.Now(),
+		Steps:      []StepStatus{},
+		Metadata: map[string]interface{}{
+			"retryOf": jobID,
+		},
+	}
+
+	pe.mu.Lock()
+	pe.jobs[newJob.ID] = newJob
+	pe.mu.Unlock()
+
+	pe.emitEvent(Event{
+		Type:      "job.started",
+		Timestamp: time.Now(),
+		PipelineID: pipelineID,
+		JobID:     newJob.ID,
+		Data: map[string]interface{}{
+			"retryOf": jobID,
+		},
+	})
+
+	// Execute the job in a goroutine
+	go func() {
+		// Simulate job execution
+		// In a real implementation, this would execute stages and steps
+		time.Sleep(2 * time.Second)
+
+		pe.mu.Lock()
+		newJob.Status = "success"
+		newJob.EndedAt = time.Now()
+		pe.mu.Unlock()
+
+		pe.emitEvent(Event{
+			Type:      "job.completed",
+			Timestamp: time.Now(),
+			PipelineID: pipelineID,
+			JobID:     newJob.ID,
+			Data: map[string]interface{}{
+				"status": "success",
+				"retryOf": jobID,
+			},
+		})
+	}()
+
+	return nil
 } 

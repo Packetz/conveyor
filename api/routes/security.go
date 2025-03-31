@@ -1,15 +1,10 @@
 package routes
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
-	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/chip/conveyor/core"
-	"github.com/chip/conveyor/plugins/security"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,152 +16,201 @@ type SecurityRequest struct {
 	SeverityThreshold string  `json:"severityThreshold"`
 	FailOnViolation  bool     `json:"failOnViolation"`
 	GenerateSBOM     bool     `json:"generateSBOM"`
-	CustomRules      []security.Rule `json:"customRules"`
+	CustomRules      []map[string]interface{} `json:"customRules"`
 }
 
 // RegisterSecurityRoutes registers all security-related routes
-func RegisterSecurityRoutes(router *gin.Engine, pipelineEngine *core.PipelineEngine) {
-	securityGroup := router.Group("/api/security")
-	{
-		// Get security scan configuration
-		securityGroup.GET("/config", func(c *gin.Context) {
-			// This would load from a configuration store in a real implementation
-			config := map[string]interface{}{
-				"scanTypes": []string{"secret", "vulnerability", "code", "license"},
-				"severityThreshold": "HIGH",
-				"ignorePatterns": []string{"node_modules/", "vendor/", ".git/"},
-				"failOnViolation": true,
-				"generateSBOM": true,
-				"sbomFormat": "cyclonedx",
-				"outputDir": "security-reports",
-			}
-			
-			c.JSON(http.StatusOK, config)
+func RegisterSecurityRoutes(router *gin.RouterGroup, pipelineEngine *core.PipelineEngine) {
+	// Get security configuration
+	router.GET("/config", func(c *gin.Context) {
+		// In a real implementation, we would get this from the security plugin
+		// For now, we'll return a mock response
+		c.JSON(http.StatusOK, gin.H{
+			"vulnerabilityScan": gin.H{
+				"enabled":     true,
+				"threshold":   "medium",
+				"excludeDeps": []string{"dev-dependencies"},
+			},
+			"secretScan": gin.H{
+				"enabled":  true,
+				"patterns": []string{"api_key", "password", "secret", "key"},
+			},
+			"licenseScan": gin.H{
+				"enabled":     true,
+				"allowedList": []string{"MIT", "Apache-2.0", "BSD-3-Clause"},
+				"blockedList": []string{"GPL-3.0"},
+			},
 		})
+	})
 
-		// Run a security scan
-		securityGroup.POST("/scan", func(c *gin.Context) {
-			var req SecurityRequest
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format", "details": err.Error()})
-				return
-			}
+	// Update security configuration
+	router.PUT("/config", func(c *gin.Context) {
+		var config map[string]interface{}
+		if err := c.ShouldBindJSON(&config); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
-			// Set defaults if not provided
-			if req.TargetDir == "" {
-				req.TargetDir = "."
-			}
-			if len(req.ScanTypes) == 0 {
-				req.ScanTypes = []string{"secret", "vulnerability", "code"}
-			}
-			if req.SeverityThreshold == "" {
-				req.SeverityThreshold = "HIGH"
-			}
+		// In a real implementation, we would update the security plugin configuration
+		// For now, we'll just return the config
+		c.JSON(http.StatusOK, config)
+	})
 
-			// Create a step for the security scan
-			step := core.Step{
-				ID:   fmt.Sprintf("security-scan-%d", time.Now().Unix()),
-				Name: "security-scan",
-				Type: "plugin",
-				Plugin: "security-scanner",
-				Config: map[string]interface{}{
-					"targetDir":         req.TargetDir,
-					"scanTypes":         req.ScanTypes,
-					"severityThreshold": req.SeverityThreshold,
-					"failOnViolation":   req.FailOnViolation,
-					"generateSBOM":      req.GenerateSBOM,
-				},
-			}
-
-			// Add custom rules if provided
-			if len(req.CustomRules) > 0 {
-				step.Config["customRules"] = req.CustomRules
-			}
-
-			// Create a security plugin instance
-			plugin, err := security.NewSecurityPlugin("")
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize security scanner", "details": err.Error()})
-				return
-			}
-
-			// Run the scan
-			ctx := c.Request.Context()
-			result, err := plugin.Execute(ctx, step)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Security scan failed", "details": err.Error()})
-				return
-			}
-
-			// Return the result
-			c.JSON(http.StatusOK, result)
+	// Get all security scans
+	router.GET("/scans", func(c *gin.Context) {
+		// In a real implementation, we would get this from storage
+		// For now, we'll return a mock response
+		c.JSON(http.StatusOK, []gin.H{
+			{
+				"id":            "scan-1",
+				"timestamp":     time.Now().Add(-24 * time.Hour),
+				"type":          "vulnerability",
+				"pipelineId":    "pipeline-1",
+				"jobId":         "job-1",
+				"status":        "completed",
+				"findingsCount": 3,
+				"highCount":     1,
+				"mediumCount":   2,
+				"lowCount":      0,
+			},
+			{
+				"id":            "scan-2",
+				"timestamp":     time.Now().Add(-12 * time.Hour),
+				"type":          "secret",
+				"pipelineId":    "pipeline-1",
+				"jobId":         "job-2",
+				"status":        "completed",
+				"findingsCount": 1,
+			},
 		})
+	})
 
-		// Get scan history for a pipeline
-		securityGroup.GET("/history/:pipelineId", func(c *gin.Context) {
-			pipelineID := c.Param("pipelineId")
-			
-			// This would load from a database in a real implementation
-			// For now, we'll return a mock response
-			history := []map[string]interface{}{
+	// Create a new security scan
+	router.POST("/scans", func(c *gin.Context) {
+		var scanRequest struct {
+			Type       string `json:"type" binding:"required"`
+			PipelineID string `json:"pipelineId" binding:"required"`
+			JobID      string `json:"jobId" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&scanRequest); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// In a real implementation, we would run a security scan
+		// For now, we'll just return a mock response
+		c.JSON(http.StatusAccepted, gin.H{
+			"id":         "scan-" + time.Now().Format("20060102150405"),
+			"type":       scanRequest.Type,
+			"pipelineId": scanRequest.PipelineID,
+			"jobId":      scanRequest.JobID,
+			"status":     "pending",
+			"timestamp":  time.Now(),
+		})
+	})
+
+	// Get a specific security scan
+	router.GET("/scans/:id", func(c *gin.Context) {
+		id := c.Param("id")
+
+		// In a real implementation, we would get this from storage
+		// For now, we'll return a mock response based on the ID
+		c.JSON(http.StatusOK, gin.H{
+			"id":            id,
+			"timestamp":     time.Now().Add(-6 * time.Hour),
+			"type":          "vulnerability",
+			"pipelineId":    "pipeline-1",
+			"jobId":         "job-3",
+			"status":        "completed",
+			"findingsCount": 5,
+			"highCount":     2,
+			"mediumCount":   2,
+			"lowCount":      1,
+			"findings": []gin.H{
 				{
-					"id": "scan-123",
-					"pipelineId": pipelineID,
-					"timestamp": time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
-					"status": "success",
-					"findings": 5,
-					"duration": "4.2s",
+					"id":          "CVE-2021-1234",
+					"severity":    "high",
+					"package":     "lodash",
+					"version":     "4.17.20",
+					"description": "Prototype pollution vulnerability in lodash",
+					"fixVersion":  "4.17.21",
 				},
 				{
-					"id": "scan-124",
-					"pipelineId": pipelineID,
-					"timestamp": time.Now().Add(-12 * time.Hour).Format(time.RFC3339),
-					"status": "failed",
-					"findings": 12,
-					"duration": "3.8s",
+					"id":          "CVE-2021-5678",
+					"severity":    "high",
+					"package":     "express",
+					"version":     "4.17.1",
+					"description": "Memory leak in Express.js",
+					"fixVersion":  "4.17.2",
 				},
-				{
-					"id": "scan-125",
-					"pipelineId": pipelineID,
-					"timestamp": time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-					"status": "success",
-					"findings": 3,
-					"duration": "4.5s",
-				},
-			}
-			
-			c.JSON(http.StatusOK, history)
+			},
 		})
+	})
 
-		// Get a specific scan result
-		securityGroup.GET("/scan/:scanId", func(c *gin.Context) {
-			scanID := c.Param("scanId")
-			
-			// In a real implementation, this would load the scan result from a database
-			// For now, we'll simulate finding a report file
-			reportPath := filepath.Join("security-reports", fmt.Sprintf("%s.json", scanID))
-			
-			// Simulated file reading error
-			if scanID == "invalid" {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Scan report not found"})
-				return
-			}
-			
-			// For demo purposes, return mock data
-			mockData := generateMockScanResult(scanID)
-			c.JSON(http.StatusOK, mockData)
-		})
+	// Get scan history for a pipeline
+	router.GET("/history/:pipelineId", func(c *gin.Context) {
+		pipelineID := c.Param("pipelineId")
+		
+		// This would load from a database in a real implementation
+		// For now, we'll return a mock response
+		history := []map[string]interface{}{
+			{
+				"id": "scan-123",
+				"pipelineId": pipelineID,
+				"timestamp": time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
+				"status": "success",
+				"findings": 5,
+				"duration": "4.2s",
+			},
+			{
+				"id": "scan-124",
+				"pipelineId": pipelineID,
+				"timestamp": time.Now().Add(-12 * time.Hour).Format(time.RFC3339),
+				"status": "failed",
+				"findings": 12,
+				"duration": "3.8s",
+			},
+			{
+				"id": "scan-125",
+				"pipelineId": pipelineID,
+				"timestamp": time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
+				"status": "success",
+				"findings": 3,
+				"duration": "4.5s",
+			},
+		}
+		
+		c.JSON(http.StatusOK, history)
+	})
 
-		// Get the latest scan for a pipeline
-		securityGroup.GET("/latest/:pipelineId", func(c *gin.Context) {
-			pipelineID := c.Param("pipelineId")
-			
-			// In a real implementation, this would query the most recent scan
-			// For now, we'll return mock data
-			mockData := generateMockScanResult("latest-" + pipelineID)
-			c.JSON(http.StatusOK, mockData)
-		})
-	}
+	// Get a specific scan result
+	router.GET("/scan/:scanId", func(c *gin.Context) {
+		scanID := c.Param("scanId")
+		
+		// In a real implementation, this would load the scan result from a database
+		// For now, we'll simulate finding a report file
+		
+		// Simulated file reading error
+		if scanID == "invalid" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Scan report not found"})
+			return
+		}
+		
+		// For demo purposes, return mock data
+		mockData := generateMockScanResult(scanID)
+		c.JSON(http.StatusOK, mockData)
+	})
+
+	// Get the latest scan for a pipeline
+	router.GET("/latest/:pipelineId", func(c *gin.Context) {
+		pipelineID := c.Param("pipelineId")
+		
+		// In a real implementation, this would query the most recent scan
+		// For now, we'll return mock data
+		mockData := generateMockScanResult("latest-" + pipelineID)
+		c.JSON(http.StatusOK, mockData)
+	})
 }
 
 // generateMockScanResult creates mock scan data for demonstration purposes

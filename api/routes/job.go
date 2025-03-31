@@ -8,177 +8,118 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterJobRoutes registers all job-related routes
-func RegisterJobRoutes(router *gin.Engine, pipelineEngine *core.PipelineEngine) {
-	jobGroup := router.Group("/api/jobs")
-	{
-		// Get all jobs
-		jobGroup.GET("", func(c *gin.Context) {
-			// Filter by pipeline ID if provided
-			pipelineID := c.Query("pipelineId")
+// JobPayload represents a job creation payload
+type JobPayload struct {
+	PipelineID string                 `json:"pipelineId" binding:"required"`
+	Params     map[string]interface{} `json:"params,omitempty"`
+}
 
-			// This would load from a database in a real implementation
-			// For now, we'll return a mock response
-			jobs := []map[string]interface{}{
-				{
-					"id":         "job-123",
-					"pipelineId": "pipeline-1",
-					"status":     "running",
-					"startedAt":  time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-					"duration":   "1h 30m",
-				},
-				{
-					"id":         "job-124",
-					"pipelineId": "pipeline-1",
-					"status":     "success",
-					"startedAt":  time.Now().Add(-5 * time.Hour).Format(time.RFC3339),
-					"duration":   "45m",
-				},
-				{
-					"id":         "job-125",
-					"pipelineId": "pipeline-2",
-					"status":     "failed",
-					"startedAt":  time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-					"duration":   "20m",
-				},
-			}
+// JobResponse represents a job response
+type JobResponse struct {
+	ID         string                 `json:"id"`
+	PipelineID string                 `json:"pipelineId"`
+	Status     string                 `json:"status"`
+	StartedAt  time.Time              `json:"startedAt"`
+	EndedAt    time.Time              `json:"endedAt,omitempty"`
+	Steps      []core.StepStatus      `json:"steps,omitempty"`
+	Logs       []core.LogEntry        `json:"logs,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+}
 
-			// Filter by pipeline ID if provided
-			if pipelineID != "" {
-				filteredJobs := make([]map[string]interface{}, 0)
-				for _, job := range jobs {
-					if job["pipelineId"] == pipelineID {
-						filteredJobs = append(filteredJobs, job)
-					}
-				}
-				jobs = filteredJobs
-			}
+// RegisterJobRoutes registers job routes
+func RegisterJobRoutes(router *gin.RouterGroup, engine *core.PipelineEngine) {
+	router.POST("", createJob(engine))
+	router.GET("/:id", getJob(engine))
+	router.POST("/:id/retry", retryJob(engine))
+	router.POST("/:id/cancel", cancelJob(engine))
+}
 
-			c.JSON(http.StatusOK, jobs)
+// createJob creates a new job
+func createJob(engine *core.PipelineEngine) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var payload JobPayload
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// In a real implementation, we would validate the pipeline ID and create a job
+		// For now, just return a placeholder
+		c.JSON(http.StatusAccepted, gin.H{
+			"id":         "job-" + time.Now().Format("20060102150405"),
+			"pipelineId": payload.PipelineID,
+			"status":     "pending",
+			"startedAt":  time.Now(),
 		})
+	}
+}
 
-		// Get a single job
-		jobGroup.GET("/:id", func(c *gin.Context) {
-			id := c.Param("id")
-
-			// In a real implementation, this would query the database
-			// For now, we'll return mock data
-			job := map[string]interface{}{
-				"id":         id,
-				"pipelineId": "pipeline-1",
-				"status":     "running",
-				"startedAt":  time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-				"duration":   "1h 30m",
-				"steps": []map[string]interface{}{
-					{
-						"id":     "step-1",
-						"name":   "checkout",
-						"status": "success",
-						"output": "Checked out repository at commit abc123",
-					},
-					{
-						"id":     "step-2",
-						"name":   "build",
-						"status": "success",
-						"output": "Build completed successfully",
-					},
-					{
-						"id":     "step-3",
-						"name":   "test",
-						"status": "running",
-						"output": "Running tests...",
-					},
+// getJob retrieves a job by ID
+func getJob(engine *core.PipelineEngine) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		pipelineID := c.DefaultQuery("pipelineId", "")
+		
+		// In a real implementation, we would validate the IDs and get the job
+		// For now, just return a placeholder
+		c.JSON(http.StatusOK, gin.H{
+			"id":         id,
+			"pipelineId": pipelineID,
+			"status":     "running",
+			"startedAt":  time.Now().Add(-5 * time.Minute),
+			"steps": []gin.H{
+				{
+					"id":        "step-1",
+					"name":      "Build",
+					"status":    "success",
+					"startedAt": time.Now().Add(-5 * time.Minute),
+					"endedAt":   time.Now().Add(-4 * time.Minute),
 				},
-			}
-
-			c.JSON(http.StatusOK, job)
+				{
+					"id":        "step-2",
+					"name":      "Test",
+					"status":    "running",
+					"startedAt": time.Now().Add(-3 * time.Minute),
+				},
+			},
 		})
+	}
+}
 
-		// Retry a job
-		jobGroup.POST("/:id/retry", func(c *gin.Context) {
-			id := c.Param("id")
-
-			// In a real implementation, this would restart a job
-			// For now, we'll return a mock response
-			newJob := map[string]interface{}{
-				"id":         "job-" + time.Now().Format("20060102150405"),
-				"pipelineId": "pipeline-1",
-				"status":     "running",
-				"startedAt":  time.Now().Format(time.RFC3339),
-				"retryOf":    id,
-			}
-
-			c.JSON(http.StatusOK, newJob)
+// retryJob retries a job
+func retryJob(engine *core.PipelineEngine) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		pipelineID := c.DefaultQuery("pipelineId", "")
+		
+		// In a real implementation, we would validate the IDs and retry the job
+		// For now, just return a placeholder
+		c.JSON(http.StatusAccepted, gin.H{
+			"id":         "job-" + time.Now().Format("20060102150405"),
+			"pipelineId": pipelineID,
+			"status":     "pending",
+			"startedAt":  time.Now(),
+			"metadata": gin.H{
+				"retryOf": id,
+			},
 		})
+	}
+}
 
-		// Cancel a job
-		jobGroup.POST("/:id/cancel", func(c *gin.Context) {
-			id := c.Param("id")
-
-			// In a real implementation, this would cancel a running job
-			// For now, we'll return a mock response
-			job := map[string]interface{}{
-				"id":         id,
-				"pipelineId": "pipeline-1",
-				"status":     "cancelled",
-				"startedAt":  time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-				"endedAt":    time.Now().Format(time.RFC3339),
-				"duration":   "2h 0m",
-			}
-
-			c.JSON(http.StatusOK, job)
-		})
-
-		// Get job logs
-		jobGroup.GET("/:id/logs", func(c *gin.Context) {
-			id := c.Param("id")
-
-			// In a real implementation, this would fetch logs from storage
-			// For now, we'll return mock data
-			logs := []map[string]interface{}{
-				{
-					"time":    time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-					"level":   "INFO",
-					"message": "Job started",
-				},
-				{
-					"time":    time.Now().Add(-1*time.Hour - 45*time.Minute).Format(time.RFC3339),
-					"level":   "INFO",
-					"message": "Checking out repository",
-				},
-				{
-					"time":    time.Now().Add(-1*time.Hour - 44*time.Minute).Format(time.RFC3339),
-					"level":   "INFO",
-					"message": "Repository checkout complete",
-				},
-				{
-					"time":    time.Now().Add(-1*time.Hour - 40*time.Minute).Format(time.RFC3339),
-					"level":   "INFO",
-					"message": "Starting build step",
-				},
-				{
-					"time":    time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-					"level":   "INFO",
-					"message": "Build completed successfully",
-				},
-				{
-					"time":    time.Now().Add(-55 * time.Minute).Format(time.RFC3339),
-					"level":   "INFO",
-					"message": "Starting test step",
-				},
-				{
-					"time":    time.Now().Add(-30 * time.Minute).Format(time.RFC3339),
-					"level":   "WARNING",
-					"message": "Test failure in module X",
-				},
-				{
-					"time":    time.Now().Add(-15 * time.Minute).Format(time.RFC3339),
-					"level":   "INFO",
-					"message": "Tests completed with warnings",
-				},
-			}
-
-			c.JSON(http.StatusOK, logs)
+// cancelJob cancels a job
+func cancelJob(engine *core.PipelineEngine) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		pipelineID := c.DefaultQuery("pipelineId", "")
+		
+		// In a real implementation, we would validate the IDs and cancel the job
+		// For now, just return a placeholder
+		c.JSON(http.StatusOK, gin.H{
+			"id":         id,
+			"pipelineId": pipelineID,
+			"status":     "cancelled",
+			"startedAt":  time.Now().Add(-5 * time.Minute),
+			"endedAt":    time.Now(),
 		})
 	}
 } 

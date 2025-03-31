@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -27,8 +28,8 @@ func NewServer(pipelineEngine *core.PipelineEngine) *Server {
 	// Configure CORS
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -41,7 +42,7 @@ func NewServer(pipelineEngine *core.PipelineEngine) *Server {
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for WebSocket connections
+				return true
 			},
 		},
 	}
@@ -59,6 +60,7 @@ func (s *Server) Start(addr string) error {
 		Handler: s.router,
 	}
 
+	log.Printf("Starting API server on %s", addr)
 	return s.httpServer.ListenAndServe()
 }
 
@@ -72,9 +74,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // registerRoutes registers all API routes
 func (s *Server) registerRoutes() {
-	// Health check
-	s.router.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	// Health check route
+	s.router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+		})
 	})
 
 	// Web UI
@@ -83,63 +87,78 @@ func (s *Server) registerRoutes() {
 	})
 
 	// API routes
-	routes.RegisterPipelineRoutes(s.router, s.pipelineEngine)
-	routes.RegisterJobRoutes(s.router, s.pipelineEngine)
-	routes.RegisterPluginRoutes(s.router)
-	routes.RegisterSecurityRoutes(s.router, s.pipelineEngine)
+	api := s.router.Group("/api")
+	
+	// API health endpoint
+	api.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+		})
+	})
+	
+	// Pipeline routes
+	pipelineRoutes := api.Group("/pipelines")
+	routes.RegisterPipelineRoutes(pipelineRoutes, s.pipelineEngine)
+	
+	// Job routes
+	jobRoutes := api.Group("/jobs")
+	routes.RegisterJobRoutes(jobRoutes, s.pipelineEngine)
+	
+	// Plugin routes
+	pluginRoutes := api.Group("/plugins")
+	routes.RegisterPluginRoutes(pluginRoutes)
+	
+	// Security routes
+	securityRoutes := api.Group("/security")
+	routes.RegisterSecurityRoutes(securityRoutes, s.pipelineEngine)
 	
 	// WebSocket route for real-time updates
-	s.router.GET("/api/ws", s.handleWebSocket)
+	s.router.GET("/ws", s.handleWebSocket)
 
 	// Static files for UI
 	s.router.Static("/ui", "./ui/dist")
 }
 
-// handleWebSocket handles WebSocket connections for real-time updates
+// handleWebSocket handles WebSocket connections
 func (s *Server) handleWebSocket(c *gin.Context) {
+	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := s.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade connection to WebSocket"})
+		log.Printf("Error upgrading connection: %v", err)
 		return
 	}
 	defer conn.Close()
 
-	// Create a unique client ID
-	clientID := c.Query("clientId")
-	if clientID == "" {
-		clientID = "client-" + time.Now().Format("20060102-150405.000")
-	}
+	// Create a channel for events
+	eventCh := make(chan core.Event, 100)
 
-	// Register client for event notifications
-	events := make(chan core.Event)
-	s.pipelineEngine.RegisterEventListener(clientID, events)
-	defer s.pipelineEngine.UnregisterEventListener(clientID)
+	// Register the event listener
+	s.pipelineEngine.RegisterEventListener(c.ClientIP(), eventCh)
+	defer s.pipelineEngine.UnregisterEventListener(c.ClientIP())
 
-	// Create a context that's cancelled when the connection is closed
-	ctx, cancel := context.WithCancel(c.Request.Context())
-	defer cancel()
-
-	// Read messages from client in a separate goroutine
+	// Write events to the WebSocket
 	go func() {
-		defer cancel()
-		for {
-			_, _, err := conn.ReadMessage()
+		for event := range eventCh {
+			err := conn.WriteJSON(event)
 			if err != nil {
-				return // Connection closed
+				log.Printf("Error writing to WebSocket: %v", err)
+				return
 			}
 		}
 	}()
 
-	// Send events to client
+	// Read messages from the WebSocket (just ping-pong for now)
 	for {
-		select {
-		case event := <-events:
-			err := conn.WriteJSON(event)
-			if err != nil {
-				return // Connection closed
-			}
-		case <-ctx.Done():
-			return // Context cancelled
+		messageType, p, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("Error reading from WebSocket: %v", err)
+			return
+		}
+
+		// Echo the message back for now
+		if err := conn.WriteMessage(messageType, p); err != nil {
+			log.Printf("Error writing to WebSocket: %v", err)
+			return
 		}
 	}
 } 

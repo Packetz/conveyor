@@ -2,27 +2,29 @@ FROM golang:1.21-alpine
 
 WORKDIR /app
 
-# Install build dependencies and development tools
-RUN apk add --no-cache git curl bash
+# Install air for hot reload
+RUN go install github.com/cosmtrek/air@v1.49.0
 
-# Install a specific version of air that works with Go 1.21
-RUN go install github.com/cosmtrek/air@v1.44.0 && \
-  go install github.com/go-delve/delve/cmd/dlv@latest
+# Set environment variables
+ENV GO_ENV=development
+ENV CGO_ENABLED=0
+ENV GOOS=linux
 
-# Create default Go module if it doesn't exist
-COPY go.mod go.sum ./
+# Use -buildvcs=false to disable VCS stamping
+ENV GOFLAGS="-buildvcs=false"
 
-# Initialize module if needed
-RUN grep -q "module" go.mod || echo "module github.com/chip/conveyor\n\ngo 1.21" > go.mod
+# Copy only go.mod file first
+COPY go.mod ./
 
-# Download dependencies if any are specified (will be skipped if go.mod is empty)
-RUN go mod download || true
+# Download dependencies and regenerate go.sum
+RUN go mod download && go mod tidy
 
-# Copy config files for air
-COPY .air.toml ./
+# Copy the rest of the application
+COPY . .
 
-# Expose API port and delve debugging port
-EXPOSE 8080 2345
+# Expose ports
+EXPOSE 8080
+EXPOSE 2345
 
-# Start the development server with hot-reloading
+# Command to run
 CMD ["air", "-c", ".air.toml"] 

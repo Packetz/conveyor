@@ -9,147 +9,151 @@ import (
 )
 
 // RegisterPipelineRoutes registers all pipeline-related routes
-func RegisterPipelineRoutes(router *gin.Engine, pipelineEngine *core.PipelineEngine) {
-	pipelineGroup := router.Group("/api/pipelines")
-	{
-		// Get all pipelines
-		pipelineGroup.GET("", func(c *gin.Context) {
-			// This would load from a database in a real implementation
-			// For now, we'll return a mock response
-			pipelines := []map[string]interface{}{
-				{
-					"id":          "pipeline-1",
-					"name":        "Build and Test",
-					"description": "Builds and tests the application",
-					"status":      "running",
-					"createdAt":   time.Now().Add(-48 * time.Hour).Format(time.RFC3339),
-					"updatedAt":   time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-				},
-				{
-					"id":          "pipeline-2",
-					"name":        "Deploy to Production",
-					"description": "Deploys the application to production",
-					"status":      "success",
-					"createdAt":   time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
-					"updatedAt":   time.Now().Add(-12 * time.Hour).Format(time.RFC3339),
-				},
-				{
-					"id":          "pipeline-3",
-					"name":        "Security Scan",
-					"description": "Performs security scanning of the codebase",
-					"status":      "failed",
-					"createdAt":   time.Now().Add(-12 * time.Hour).Format(time.RFC3339),
-					"updatedAt":   time.Now().Add(-6 * time.Hour).Format(time.RFC3339),
-				},
-			}
+func RegisterPipelineRoutes(router *gin.RouterGroup, engine *core.PipelineEngine) {
+	// Get all pipelines
+	router.GET("", func(c *gin.Context) {
+		pipelines := engine.ListPipelines()
+		c.JSON(http.StatusOK, pipelines)
+	})
 
-			c.JSON(http.StatusOK, pipelines)
-		})
+	// Get a single pipeline
+	router.GET("/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		pipeline, err := engine.GetPipeline(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, pipeline)
+	})
 
-		// Get a single pipeline
-		pipelineGroup.GET("/:id", func(c *gin.Context) {
-			id := c.Param("id")
+	// Create a new pipeline
+	router.POST("", func(c *gin.Context) {
+		var pipeline core.Pipeline
+		if err := c.ShouldBindJSON(&pipeline); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		
+		now := time.Now()
+		pipeline.CreatedAt = now
+		pipeline.UpdatedAt = now
+		
+		err := engine.CreatePipeline(&pipeline)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusCreated, pipeline)
+	})
 
-			// In a real implementation, this would query the database
-			// For now, we'll return mock data
-			pipeline := map[string]interface{}{
-				"id":          id,
-				"name":        "Build and Test",
-				"description": "Builds and tests the application",
-				"status":      "running",
-				"createdAt":   time.Now().Add(-48 * time.Hour).Format(time.RFC3339),
-				"updatedAt":   time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-				"stages": []map[string]interface{}{
-					{
-						"id":     "stage-1",
-						"name":   "Build",
-						"status": "success",
-					},
-					{
-						"id":     "stage-2",
-						"name":   "Test",
-						"status": "running",
-					},
-					{
-						"id":     "stage-3",
-						"name":   "Deploy",
-						"status": "pending",
-					},
-				},
-			}
+	// Update a pipeline
+	router.PUT("/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		
+		var pipeline core.Pipeline
+		if err := c.ShouldBindJSON(&pipeline); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// Ensure the ID matches
+		if pipeline.ID != id {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "pipeline ID in URL does not match payload"})
+			return
+		}
+		
+		// Get the existing pipeline
+		existing, err := engine.GetPipeline(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// Delete the old pipeline
+		err = engine.DeletePipeline(id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// Preserve creation time
+		pipeline.CreatedAt = existing.CreatedAt
+		pipeline.UpdatedAt = time.Now()
+		
+		// Create the updated pipeline
+		err = engine.CreatePipeline(&pipeline)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, pipeline)
+	})
 
-			c.JSON(http.StatusOK, pipeline)
-		})
+	// Delete a pipeline
+	router.DELETE("/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		err := engine.DeletePipeline(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	})
 
-		// Create a new pipeline
-		pipelineGroup.POST("", func(c *gin.Context) {
-			var pipelineRequest map[string]interface{}
-			if err := c.ShouldBindJSON(&pipelineRequest); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format", "details": err.Error()})
-				return
-			}
+	// Execute a pipeline
+	router.POST("/:id/execute", func(c *gin.Context) {
+		id := c.Param("id")
+		err := engine.ExecutePipeline(id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusAccepted, gin.H{"status": "executing"})
+	})
 
-			// In a real implementation, this would create a pipeline in the database
-			// For now, we'll return a mock response
-			pipeline := map[string]interface{}{
-				"id":          "pipeline-new",
-				"name":        pipelineRequest["name"],
-				"description": pipelineRequest["description"],
-				"status":      "created",
-				"createdAt":   time.Now().Format(time.RFC3339),
-				"updatedAt":   time.Now().Format(time.RFC3339),
-			}
+	// Get pipeline jobs
+	router.GET("/:id/jobs", func(c *gin.Context) {
+		id := c.Param("id")
+		jobs, err := engine.ListJobs(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, jobs)
+	})
 
-			c.JSON(http.StatusCreated, pipeline)
-		})
+	// Get a specific job
+	router.GET("/:id/jobs/:jobId", func(c *gin.Context) {
+		pipelineID := c.Param("id")
+		jobID := c.Param("jobId")
+		
+		job, err := engine.GetJob(pipelineID, jobID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, job)
+	})
 
-		// Update a pipeline
-		pipelineGroup.PUT("/:id", func(c *gin.Context) {
-			id := c.Param("id")
-
-			var pipelineRequest map[string]interface{}
-			if err := c.ShouldBindJSON(&pipelineRequest); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format", "details": err.Error()})
-				return
-			}
-
-			// In a real implementation, this would update a pipeline in the database
-			// For now, we'll return a mock response
-			pipeline := map[string]interface{}{
-				"id":          id,
-				"name":        pipelineRequest["name"],
-				"description": pipelineRequest["description"],
-				"status":      "updated",
-				"createdAt":   time.Now().Add(-48 * time.Hour).Format(time.RFC3339),
-				"updatedAt":   time.Now().Format(time.RFC3339),
-			}
-
-			c.JSON(http.StatusOK, pipeline)
-		})
-
-		// Delete a pipeline
-		pipelineGroup.DELETE("/:id", func(c *gin.Context) {
-			id := c.Param("id")
-
-			// In a real implementation, this would delete a pipeline from the database
-			// For now, we'll return a mock response
-			c.JSON(http.StatusOK, gin.H{"message": "Pipeline deleted successfully", "id": id})
-		})
-
-		// Run a pipeline
-		pipelineGroup.POST("/:id/run", func(c *gin.Context) {
-			id := c.Param("id")
-
-			// In a real implementation, this would start a pipeline execution
-			// For now, we'll return a mock response
-			job := map[string]interface{}{
-				"id":         "job-123",
-				"pipelineId": id,
-				"status":     "running",
-				"startedAt":  time.Now().Format(time.RFC3339),
-			}
-
-			c.JSON(http.StatusOK, job)
-		})
-	}
+	// Retry a job
+	router.POST("/:id/jobs/:jobId/retry", func(c *gin.Context) {
+		pipelineID := c.Param("id")
+		jobID := c.Param("jobId")
+		
+		err := engine.RetryJob(pipelineID, jobID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusAccepted, gin.H{"status": "retrying"})
+	})
 } 
