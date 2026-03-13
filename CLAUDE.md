@@ -6,18 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Conveyor is a CI/CD platform with pipeline execution, security scanning, and a plugin architecture. Go backend (Gin) with React/TypeScript frontend (Vite + Material-UI).
 
+## Prerequisites
+
+Required external tools (not installed by `make deps`):
+- **Go 1.16+** — backend compiler
+- **golangci-lint** — `make lint`
+- **gosec**, **trivy** — `make security-scan`
+- **swag** — `make docs` (API doc generation)
+- **air** — hot reload in Docker dev (included in dev container)
+- **Node 18+** — frontend
+
 ## Build & Development Commands
 
 ```bash
 # Build
 make build              # Build Go binary (output: ./conveyor)
 make docker-build       # Build production Docker images
+make clean              # Remove binary, data/, and ui/dist/
 
 # Test & Lint
 make test               # go test -v ./...
 make lint               # golangci-lint run
 make check              # Run all checks (lint, test, security-scan)
 make security-scan      # gosec + trivy
+make docs               # Generate API docs (swag init)
 
 # Development (Docker — recommended)
 ./scripts/docker-dev.sh up        # Start frontend (3000), backend (8080), Redis (6379)
@@ -26,7 +38,7 @@ make security-scan      # gosec + trivy
 ./scripts/docker-dev.sh down      # Stop services
 
 # Development (local)
-make dev                # Requires Go 1.21+, Redis running locally
+make dev                # Requires Go, Redis running locally
 
 # Frontend (standalone)
 cd ui && npm install && npm run dev   # Vite dev server on :3000
@@ -45,6 +57,8 @@ make deps               # Install Go and npm dependencies
 - **`api/routes/`** — Route handlers grouped by domain: `pipeline.go`, `job.go`, `plugin.go`, `security.go`, `system.go`.
 - **`plugins/plugin.go`** — Plugin manager. Plugins implement `Execute()` and `GetManifest()`. Loaded from `manifest.json` + `.so` binary.
 - **`plugins/security/`** — Security scanning plugin (secret scan, vulnerability scan, license check, code scan, SBOM generation). Configuration schema in `manifest.json`.
+- **`core/loader/`** — YAML pipeline loader. Parses pipeline YAML files, validates structure, converts to core types, and loads from the `pipelines/` directory. Key files: `parse.go`, `validator.go`, `convert.go`, `slugify.go`, `loader.go`, `types.go`.
+- **`pipelines/`** — Directory for pipeline YAML definitions loaded at startup (e.g., `secure-build.yaml`).
 
 ### Frontend (React/TypeScript)
 
@@ -58,6 +72,7 @@ make deps               # Install Go and npm dependencies
 - **Event system**: `PipelineEngine` emits events through channels; WebSocket endpoint streams them to the frontend as JSON.
 - **Plugin interface**: All plugins provide a manifest (capabilities, config schema, step types) and an execution function. The security plugin demonstrates the full pattern.
 - **Pipeline YAML**: Pipelines define stages with dependency ordering (`needs`), conditional execution (`when`), retry policies, and caching. See `samples/pipelines/secure-build.yaml` for a complete example.
+- **YAML pipeline loader**: At startup, `core/loader` scans `pipelines/` for `.yaml`/`.yml` files, parses and validates them, converts to core types, and registers them with the engine. Pipelines can also be imported at runtime via the API.
 
 ### Infrastructure
 
@@ -67,7 +82,7 @@ make deps               # Install Go and npm dependencies
 ## API Structure
 
 All REST endpoints under `/api`:
-- `/api/pipelines` — CRUD + `/execute`, `/jobs`, `/jobs/:jobID/retry`
+- `/api/pipelines` — CRUD + `/execute`, `/jobs`, `/jobs/:jobID/retry`, `/import` (POST, load from YAML)
 - `/api/security` — `/config`, `/scans`
 - `/api/plugins` — Plugin management
 - `/api/system` — Health, metrics
