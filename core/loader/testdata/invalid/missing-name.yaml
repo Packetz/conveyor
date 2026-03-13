@@ -1,0 +1,5 @@
+stages:
+  - name: build
+    steps:
+      - name: compile
+        run: go build ./...
