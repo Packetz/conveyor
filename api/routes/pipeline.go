@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"io"
 	"net/http"
 	"time"
 
@@ -147,13 +148,43 @@ func RegisterPipelineRoutes(router *gin.RouterGroup, engine *core.PipelineEngine
 	router.POST("/:id/jobs/:jobId/retry", func(c *gin.Context) {
 		pipelineID := c.Param("id")
 		jobID := c.Param("jobId")
-		
+
 		err := engine.RetryJob(pipelineID, jobID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		
+
 		c.JSON(http.StatusAccepted, gin.H{"status": "retrying"})
+	})
+}
+
+// RegisterPipelineImportRoute registers the YAML pipeline import route.
+func RegisterPipelineImportRoute(router *gin.RouterGroup, pipelineLoader interface {
+	LoadFromBytes([]byte, string) (*core.Pipeline, []string, error)
+}) {
+	router.POST("/import", func(c *gin.Context) {
+		name := c.Query("name")
+		if name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'name' is required"})
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20)) // 1MB limit
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			return
+		}
+
+		pipeline, warnings, err := pipelineLoader.LoadFromBytes(body, name)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "warnings": warnings})
+			return
+		}
+
+		c.JSON(http.StatusCreated, gin.H{
+			"pipeline": pipeline,
+			"warnings": warnings,
+		})
 	})
 } 

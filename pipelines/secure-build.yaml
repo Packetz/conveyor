@@ -1,0 +1,154 @@
+name: secure-build
+description: A secure CI/CD pipeline with comprehensive security scanning
+version: 1.0.0
+
+triggers:
+  - type: push
+    branches: [main, develop]
+  - type: pull_request
+    events: [opened, synchronize]
+
+environment:
+  variables:
+    NODE_ENV: development
+    GO_VERSION: 1.21
+
+cache:
+  key: "{{ checksum('package.json', 'go.sum') }}"
+  paths:
+    - node_modules
+    - vendor
+
+stages:
+  - name: pre-build
+    steps:
+      - name: setup
+        description: Setup build environment
+        run: |
+          go version
+          npm --version
+
+      - name: dependencies
+        description: Install dependencies
+        run: |
+          npm ci
+          go mod download
+
+  - name: security-checks
+    steps:
+      - name: secret-scan
+        description: Scan codebase for secrets
+        plugin: security-scanner
+        config:
+          scanTypes: [secret]
+          severityThreshold: HIGH
+          failOnViolation: true
+          outputDir: reports/security
+
+      - name: code-scan
+        description: Check code for security vulnerabilities
+        plugin: security-scanner
+        config:
+          scanTypes: [code]
+          severityThreshold: MEDIUM
+          ignorePatterns: 
+            - node_modules/
+            - vendor/
+            - .git/
+            - test/fixtures/
+          customRules:
+            - id: "CUSTOM-001"
+              name: "Unsafe Eval"
+              description: "Use of unsafe eval() function"
+              severity: "HIGH"
+              pattern: "eval\\("
+
+      - name: dependency-scan
+        description: Scan dependencies for vulnerabilities
+        plugin: security-scanner
+        config:
+          scanTypes: [vulnerability]
+          severityThreshold: HIGH
+          generateSBOM: true
+          sbomFormat: cyclonedx
+
+      - name: license-scan
+        description: Check for license compliance
+        plugin: security-scanner
+        config:
+          scanTypes: [license]
+          severityThreshold: MEDIUM
+
+  - name: build
+    needs: [pre-build, security-checks]
+    steps:
+      - name: build-frontend
+        description: Build frontend application
+        run: npm run build
+
+      - name: build-backend
+        description: Build backend application
+        run: go build -o bin/server ./cmd/server
+
+  - name: test
+    needs: [build]
+    steps:
+      - name: unit-tests
+        description: Run unit tests
+        run: |
+          npm test
+          go test ./...
+
+      - name: integration-tests
+        description: Run integration tests
+        run: go test ./integration/...
+
+  - name: package
+    needs: [test]
+    steps:
+      - name: docker-build
+        description: Build Docker image
+        run: docker build -t myapp:${CONVEYOR_COMMIT_SHA} .
+
+      - name: final-security-scan
+        description: Run a final security scan on the Docker image
+        plugin: security-scanner
+        config:
+          scanTypes: [vulnerability]
+          severityThreshold: CRITICAL
+          failOnViolation: true
+
+  - name: deploy
+    needs: [package]
+    when: 
+      branch: main
+    steps:
+      - name: deploy-app
+        description: Deploy the application
+        run: |
+          echo "Deploying to production..."
+          # Deploy command would go here
+
+notifications:
+  - type: slack
+    channel: "#builds"
+    events: [success, failure]
+    template: |
+      Pipeline: {{ pipeline.name }}
+      Status: {{ pipeline.status }}
+      Security issues: {{ plugin.security-scanner.summary.TotalFindings || 0 }}
+
+  - type: email
+    recipients: [team@example.com]
+    events: [failure]
+    
+artifacts:
+  - name: security-reports
+    path: reports/security/
+    retention: 30d
+
+  - name: build-artifacts
+    path: 
+      - bin/
+      - dist/
+    retention: 7d 

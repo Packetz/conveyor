@@ -1,0 +1,12 @@
+name: circular
+stages:
+  - name: stage-a
+    needs: [stage-b]
+    steps:
+      - name: step-a
+        run: echo a
+  - name: stage-b
+    needs: [stage-a]
+    steps:
+      - name: step-b
+        run: echo b

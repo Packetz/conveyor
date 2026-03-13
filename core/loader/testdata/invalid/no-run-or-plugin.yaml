@@ -1,0 +1,5 @@
+name: no-run-or-plugin
+stages:
+  - name: build
+    steps:
+      - name: broken-step

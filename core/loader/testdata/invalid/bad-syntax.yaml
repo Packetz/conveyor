@@ -1,0 +1,5 @@
+name: broken
+stages:
+  - name: [invalid yaml
+    steps:
+      - this is not valid::: yaml: {{
