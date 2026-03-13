@@ -33,6 +33,10 @@ func SetupRoutes(r *gin.Engine, engine *core.PipelineEngine, pipelineLoader inte
 	jobRoutes := api.Group("/jobs")
 	routes.RegisterJobRoutes(jobRoutes, engine)
 
+	// Plugin routes
+	pluginRoutes := api.Group("/plugins")
+	routes.RegisterPluginRoutes(pluginRoutes)
+
 	// Security routes
 	securityRoutes := api.Group("/security")
 	routes.RegisterSecurityRoutes(securityRoutes, engine)
