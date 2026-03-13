@@ -1,0 +1,8 @@
+name: minimal-pipeline
+description: A minimal valid pipeline
+
+stages:
+  - name: build
+    steps:
+      - name: compile
+        run: go build ./...
