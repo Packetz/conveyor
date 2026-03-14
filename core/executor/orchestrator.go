@@ -92,8 +92,10 @@ func (o *PipelineOrchestrator) RunJob(ctx context.Context, pipeline *core.Pipeli
 	// Topological sort stages
 	sortedStages, err := topologicalSort(pipeline.Stages)
 	if err != nil {
+		o.engine.LockJob(job.ID)
 		job.Status = "failed"
 		job.EndedAt = time.Now()
+		o.engine.UnlockJob(job.ID)
 		o.engine.EmitJobCompletedEvent(pipeline.ID, job.ID, "failed")
 		return fmt.Errorf("dependency error: %w", err)
 	}
