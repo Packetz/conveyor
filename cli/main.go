@@ -11,6 +11,7 @@ import (
 
 	"github.com/chip/conveyor/api"
 	"github.com/chip/conveyor/core"
+	"github.com/chip/conveyor/core/executor"
 	"github.com/chip/conveyor/core/loader"
 	"github.com/chip/conveyor/plugins/security"
 	"github.com/gin-contrib/cors"
@@ -24,6 +25,11 @@ func main() {
 	// Register plugins
 	securityPlugin := security.NewSecurityPlugin()
 	engine.RegisterPlugin(securityPlugin)
+
+	// Wire up the step executor and pipeline orchestrator
+	shellExecutor := &executor.ShellExecutor{}
+	orchestrator := executor.NewPipelineOrchestrator(engine, shellExecutor)
+	engine.SetJobRunner(orchestrator)
 
 	// Load pipelines from YAML directory
 	pipelineLoader := loader.NewPipelineLoader(engine, "pipelines")

@@ -140,6 +140,7 @@ type PipelineEngine struct {
 	plugins         map[string]Plugin
 	eventListeners  map[string]chan Event
 	cacheManager    *CacheManager
+	jobRunner       JobRunner
 	mu              sync.RWMutex
 	eventsMu        sync.RWMutex
 }
@@ -148,6 +149,11 @@ type PipelineEngine struct {
 type Plugin interface {
 	Execute(ctx context.Context, step Step) (map[string]interface{}, error)
 	GetManifest() PluginManifest
+}
+
+// JobRunner executes a pipeline job. Implemented by executor.PipelineOrchestrator.
+type JobRunner interface {
+	RunJob(ctx context.Context, pipeline *Pipeline, job *Job) error
 }
 
 // CacheManager handles caching of build artifacts
@@ -187,6 +193,34 @@ func (pe *PipelineEngine) UnregisterEventListener(id string) {
 	pe.eventsMu.Lock()
 	delete(pe.eventListeners, id)
 	pe.eventsMu.Unlock()
+}
+
+// SetJobRunner sets the job runner for pipeline execution.
+func (pe *PipelineEngine) SetJobRunner(runner JobRunner) {
+	pe.jobRunner = runner
+}
+
+// GetPlugin retrieves a registered plugin by name.
+func (pe *PipelineEngine) GetPlugin(name string) (Plugin, bool) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	p, ok := pe.plugins[name]
+	return p, ok
+}
+
+// EmitEvent emits an event to all listeners (exported wrapper).
+func (pe *PipelineEngine) EmitEvent(event Event) {
+	pe.emitEvent(event)
+}
+
+// LockJob acquires a write lock for safe job mutation from the orchestrator.
+func (pe *PipelineEngine) LockJob(jobID string) {
+	pe.mu.Lock()
+}
+
+// UnlockJob releases the write lock after job mutation.
+func (pe *PipelineEngine) UnlockJob(jobID string) {
+	pe.mu.Unlock()
 }
 
 // emitEvent emits an event to all listeners
@@ -313,24 +347,35 @@ func (pe *PipelineEngine) ExecutePipeline(pipelineID string) error {
 
 	// Execute the pipeline in a goroutine
 	go func() {
-		// Simulate pipeline execution
-		// In a real implementation, this would execute stages and steps
-		time.Sleep(2 * time.Second)
+		if pe.jobRunner != nil {
+			pe.mu.RLock()
+			p := pe.pipelines[pipelineID]
+			pe.mu.RUnlock()
 
-		pe.mu.Lock()
-		job.Status = "success"
-		job.EndedAt = time.Now()
-		pe.mu.Unlock()
+			if err := pe.jobRunner.RunJob(context.Background(), p, job); err != nil {
+				pe.mu.Lock()
+				job.Status = "failed"
+				job.EndedAt = time.Now()
+				pe.mu.Unlock()
+			}
+		} else {
+			// Fallback: no runner configured
+			pe.mu.Lock()
+			job.Status = "failed"
+			job.EndedAt = time.Now()
+			pe.mu.Unlock()
 
-		pe.emitEvent(Event{
-			Type:      "job.completed",
-			Timestamp: time.Now(),
-			PipelineID: pipelineID,
-			JobID:     job.ID,
-			Data: map[string]interface{}{
-				"status": "success",
-			},
-		})
+			pe.emitEvent(Event{
+				Type:       "job.completed",
+				Timestamp:  time.Now(),
+				PipelineID: pipelineID,
+				JobID:      job.ID,
+				Data: map[string]interface{}{
+					"status": "failed",
+					"error":  "no job runner configured",
+				},
+			})
+		}
 	}()
 
 	return nil
@@ -414,25 +459,34 @@ func (pe *PipelineEngine) RetryJob(pipelineID, jobID string) error {
 
 	// Execute the job in a goroutine
 	go func() {
-		// Simulate job execution
-		// In a real implementation, this would execute stages and steps
-		time.Sleep(2 * time.Second)
+		if pe.jobRunner != nil {
+			pe.mu.RLock()
+			p := pe.pipelines[pipelineID]
+			pe.mu.RUnlock()
 
-		pe.mu.Lock()
-		newJob.Status = "success"
-		newJob.EndedAt = time.Now()
-		pe.mu.Unlock()
+			if err := pe.jobRunner.RunJob(context.Background(), p, newJob); err != nil {
+				pe.mu.Lock()
+				newJob.Status = "failed"
+				newJob.EndedAt = time.Now()
+				pe.mu.Unlock()
+			}
+		} else {
+			pe.mu.Lock()
+			newJob.Status = "failed"
+			newJob.EndedAt = time.Now()
+			pe.mu.Unlock()
 
-		pe.emitEvent(Event{
-			Type:      "job.completed",
-			Timestamp: time.Now(),
-			PipelineID: pipelineID,
-			JobID:     newJob.ID,
-			Data: map[string]interface{}{
-				"status": "success",
-				"retryOf": jobID,
-			},
-		})
+			pe.emitEvent(Event{
+				Type:       "job.completed",
+				Timestamp:  time.Now(),
+				PipelineID: pipelineID,
+				JobID:      newJob.ID,
+				Data: map[string]interface{}{
+					"status": "failed",
+					"error":  "no job runner configured",
+				},
+			})
+		}
 	}()
 
 	return nil
